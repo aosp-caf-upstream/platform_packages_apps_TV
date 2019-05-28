@@ -24,6 +24,7 @@ import android.view.ViewGroup;
 public abstract class Item {
     private View mItemView;
     private boolean mEnabled = true;
+    private boolean mClickable = true;
 
     public void setEnabled(boolean enabled) {
         if (mEnabled != enabled) {
@@ -34,9 +35,15 @@ public abstract class Item {
         }
     }
 
-    /**
-     * Returns whether this item is enabled.
-     */
+    /** Sets the item to be clickable or not. */
+    public void setClickable(boolean clickable) {
+        mClickable = clickable;
+        if (mItemView != null) {
+            mItemView.setClickable(clickable);
+        }
+    }
+
+    /** Returns whether this item is enabled. */
     public boolean isEnabled() {
         return mEnabled;
     }
@@ -58,22 +65,20 @@ public abstract class Item {
     }
 
     /**
-     * Called after onBind is called and when {@link #notifyUpdated} is called.
-     * {@link #notifyUpdated} is usually called by {@link SideFragment#notifyItemChanged} and
-     * {@link SideFragment#notifyItemsChanged}.
+     * Called after onBind is called and when {@link #notifyUpdated} is called. {@link
+     * #notifyUpdated} is usually called by {@link SideFragment#notifyItemChanged} and {@link
+     * SideFragment#notifyItemsChanged}.
      */
     protected void onUpdate() {
         setEnabledInternal(mItemView, mEnabled);
+        mItemView.setClickable(mClickable);
     }
 
     protected abstract void onSelected();
 
-    protected void onFocused() {
-    }
+    protected void onFocused() {}
 
-    /**
-     * Returns true if the item is bound, i.e., onBind is called.
-     */
+    /** Returns true if the item is bound, i.e., onBind is called. */
     protected boolean isBound() {
         return mItemView != null;
     }

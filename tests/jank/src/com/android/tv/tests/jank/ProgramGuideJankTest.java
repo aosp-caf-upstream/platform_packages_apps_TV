@@ -17,35 +17,25 @@ package com.android.tv.tests.jank;
 
 import static com.android.tv.testing.uihelper.UiDeviceAsserts.assertWaitForCondition;
 
-import android.content.res.Resources;
 import android.support.test.filters.MediumTest;
 import android.support.test.jank.GfxMonitor;
 import android.support.test.jank.JankTest;
-import android.support.test.jank.JankTestBase;
-import android.support.test.uiautomator.UiDevice;
 import android.support.test.uiautomator.Until;
-
 import com.android.tv.R;
 import com.android.tv.testing.uihelper.ByResource;
 import com.android.tv.testing.uihelper.Constants;
-import com.android.tv.testing.uihelper.LiveChannelsUiDeviceHelper;
 import com.android.tv.testing.uihelper.MenuHelper;
-import com.android.tv.testing.uihelper.UiDeviceUtils;
 
-/**
- * Jank tests for the program guide.
- */
+/** Jank tests for the program guide. */
 @MediumTest
-public class ProgramGuideJankTest extends JankTestBase {
-    private static final boolean DEBUG = false;
-    private static final String TAG = "ProgramGuideJank";
-
+public class ProgramGuideJankTest extends LiveChannelsTestCase {
     private static final String STARTING_CHANNEL = "13";
 
     /**
-     * The minimum number of frames expected during each jank test.
-     * If there is less the test will fail.  To be safe we loop the action in each test to create
-     * twice this many frames under normal conditions.
+     * The minimum number of frames expected during each jank test. If there is less the test will
+     * fail. To be safe we loop the action in each test to create twice this many frames under
+     * normal conditions.
+     *
      * <p>200 is chosen so there will be enough frame for the 90th, 95th, and 98th percentile
      * measurements are significant.
      *
@@ -53,25 +43,16 @@ public class ProgramGuideJankTest extends JankTestBase {
      */
     private static final int EXPECTED_FRAMES = 200;
 
-    private UiDevice mDevice;
-
-    private Resources mTargetResources;
     private MenuHelper mMenuHelper;
 
     @Override
     protected void setUp() throws Exception {
         super.setUp();
-        mDevice = UiDevice.getInstance(getInstrumentation());
-        mTargetResources = getInstrumentation().getTargetContext().getResources();
         mMenuHelper = new MenuHelper(mDevice, mTargetResources);
-        LiveChannelsUiDeviceHelper liveChannelsHelper = new LiveChannelsUiDeviceHelper(mDevice,
-                mTargetResources, getInstrumentation().getContext());
-        liveChannelsHelper.assertAppStarted();
         Utils.pressKeysForChannelNumber(STARTING_CHANNEL, mDevice);
     }
 
-    @JankTest(expectedFrames = EXPECTED_FRAMES,
-            beforeTest = "warmProgramGuide")
+    @JankTest(expectedFrames = EXPECTED_FRAMES, beforeTest = "warmProgramGuide")
     @GfxMonitor(processName = Utils.LIVE_CHANNELS_PROCESS_NAME)
     public void testShowClearProgramGuide() {
         int frames = 53; // measured by hand
@@ -82,24 +63,28 @@ public class ProgramGuideJankTest extends JankTestBase {
         }
     }
 
-    @JankTest(expectedFrames = EXPECTED_FRAMES,
-            beforeLoop = "showProgramGuide",
-            afterLoop = "clearProgramGuide")
+    @JankTest(
+        expectedFrames = EXPECTED_FRAMES,
+        beforeLoop = "showAndFocusProgramGuide",
+        afterLoop = "clearProgramGuide"
+    )
     @GfxMonitor(processName = Utils.LIVE_CHANNELS_PROCESS_NAME)
     public void testScrollDown() {
-        int frames = 20;  // measured by hand
+        int frames = 20; // measured by hand
         int repeat = EXPECTED_FRAMES * 2 / frames;
         for (int i = 0; i < repeat; i++) {
             mDevice.pressDPadDown();
         }
     }
 
-    @JankTest(expectedFrames = EXPECTED_FRAMES,
-            beforeLoop = "showProgramGuide",
-            afterLoop = "clearProgramGuide")
+    @JankTest(
+        expectedFrames = EXPECTED_FRAMES,
+        beforeLoop = "showAndFocusProgramGuide",
+        afterLoop = "clearProgramGuide"
+    )
     @GfxMonitor(processName = Utils.LIVE_CHANNELS_PROCESS_NAME)
     public void testScrollRight() {
-        int frames = 30;  // measured by hand
+        int frames = 30; // measured by hand
         int repeat = EXPECTED_FRAMES * 2 / frames;
         for (int i = 0; i < repeat; i++) {
             mDevice.pressDPadRight();
@@ -108,8 +93,8 @@ public class ProgramGuideJankTest extends JankTestBase {
 
     private void selectProgramGuideMenuItem() {
         mMenuHelper.showMenu();
-        mMenuHelper.assertNavigateToMenuItem(R.string.menu_title_channels,
-                R.string.channels_item_program_guide);
+        mMenuHelper.assertNavigateToMenuItem(
+                R.string.menu_title_channels, R.string.channels_item_program_guide);
         mDevice.waitForIdle();
     }
 
@@ -128,8 +113,14 @@ public class ProgramGuideJankTest extends JankTestBase {
         assertWaitForCondition(mDevice, Until.gone(Constants.PROGRAM_GUIDE));
     }
 
-    // It's public to be used with @JankTest annotation.
     public void showProgramGuide() {
+        selectProgramGuideMenuItem();
+        mDevice.pressDPadCenter();
+        assertWaitForCondition(mDevice, Until.hasObject(Constants.PROGRAM_GUIDE));
+    }
+
+    // It's public to be used with @JankTest annotation.
+    public void showAndFocusProgramGuide() {
         selectProgramGuideMenuItem();
         mDevice.pressDPadCenter();
         assertWaitForCondition(mDevice, Until.hasObject(Constants.PROGRAM_GUIDE));

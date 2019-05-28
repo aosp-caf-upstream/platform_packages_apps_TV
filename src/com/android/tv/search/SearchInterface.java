@@ -17,25 +17,22 @@
 package com.android.tv.search;
 
 import com.android.tv.search.LocalSearchProvider.SearchResult;
-
 import java.util.List;
 
-/**
- * Interface for channel and program search.
- */
+/** Interface for channel and program search. */
 public interface SearchInterface {
-    String SOURCE_TV_SEARCH = "TvSearch";
-
+    int ACTION_TYPE_START = 1;
     int ACTION_TYPE_AMBIGUOUS = 1;
     int ACTION_TYPE_SWITCH_CHANNEL = 2;
     int ACTION_TYPE_SWITCH_INPUT = 3;
+    int ACTION_TYPE_END = 3;
 
     /**
-     * Search channels, inputs, or programs.
-     * This assumes that parental control settings will not be change while searching.
+     * Search channels, inputs, or programs. This assumes that parental control settings will not be
+     * change while searching.
      *
      * @param action One of {@link #ACTION_TYPE_SWITCH_CHANNEL}, {@link #ACTION_TYPE_SWITCH_INPUT},
-     *               or {@link #ACTION_TYPE_AMBIGUOUS},
+     *     or {@link #ACTION_TYPE_AMBIGUOUS},
      */
     List<SearchResult> search(String query, int limit, int action);
 }

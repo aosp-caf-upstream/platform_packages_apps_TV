@@ -15,54 +15,41 @@
  */
 package com.android.tv.tests.jank;
 
-import android.content.res.Resources;
 import android.support.test.filters.MediumTest;
 import android.support.test.jank.GfxMonitor;
 import android.support.test.jank.JankTest;
-import android.support.test.jank.JankTestBase;
-import android.support.test.uiautomator.UiDevice;
 
-import com.android.tv.testing.uihelper.LiveChannelsUiDeviceHelper;
-
-/**
- * Jank tests for channel zapping.
- */
+/** Jank tests for channel zapping. */
 @MediumTest
-public class ChannelZappingJankTest extends JankTestBase {
+public class ChannelZappingJankTest extends LiveChannelsTestCase {
     private static final String TAG = "ChannelZappingJankTest";
 
     private static final String STARTING_CHANNEL = "13";
 
     /**
-     * The minimum number of frames expected during each jank test.
-     * If there is less the test will fail. To be safe we loop the action in each test to create
-     * twice this many frames under normal conditions.
-     * <p>At least 100 frams should be chosen so there will be enough frame
-     * for the 90th, 95th, and 98th percentile measurements are significant.
+     * The minimum number of frames expected during each jank test. If there is less the test will
+     * fail. To be safe we loop the action in each test to create twice this many frames under
+     * normal conditions.
+     *
+     * <p>At least 100 frams should be chosen so there will be enough frame for the 90th, 95th, and
+     * 98th percentile measurements are significant.
      *
      * @see <a href="http://go/janktesthelper-best-practices">Jank Test Helper Best Practices</a>
      */
     private static final int EXPECTED_FRAMES = 100;
-    private static final int WARM_UP_CHANNEL_ZAPPING_COUNT = 2;
 
-    private UiDevice mDevice;
+    private static final int WARM_UP_CHANNEL_ZAPPING_COUNT = 2;
 
     @Override
     protected void setUp() throws Exception {
         super.setUp();
-        mDevice = UiDevice.getInstance(getInstrumentation());
-        Resources targetResources = getInstrumentation().getTargetContext().getResources();
-        LiveChannelsUiDeviceHelper liveChannelsHelper = new LiveChannelsUiDeviceHelper(mDevice,
-                targetResources, getInstrumentation().getContext());
-        liveChannelsHelper.assertAppStarted();
         Utils.pressKeysForChannelNumber(STARTING_CHANNEL, mDevice);
     }
 
-    @JankTest(expectedFrames = EXPECTED_FRAMES,
-            beforeTest = "warmChannelZapping")
+    @JankTest(expectedFrames = EXPECTED_FRAMES, beforeTest = "warmChannelZapping")
     @GfxMonitor(processName = Utils.LIVE_CHANNELS_PROCESS_NAME)
     public void testChannelZapping() {
-        int frameCountForOneChannelZapping = 40;  // measured by hand
+        int frameCountForOneChannelZapping = 40; // measured by hand
         int repeat = EXPECTED_FRAMES * 2 / frameCountForOneChannelZapping;
         for (int i = 0; i < repeat; i++) {
             mDevice.pressDPadUp();

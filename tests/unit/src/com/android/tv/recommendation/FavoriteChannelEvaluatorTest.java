@@ -16,15 +16,18 @@
 
 package com.android.tv.recommendation;
 
-import android.support.test.filters.SmallTest;
+import static com.google.common.truth.Truth.assertThat;
 
+import android.support.test.filters.SmallTest;
+import android.support.test.runner.AndroidJUnit4;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import org.junit.Test;
+import org.junit.runner.RunWith;
 
-/**
- * Unit tests for {@link FavoriteChannelEvaluator}.
- */
+/** Unit tests for {@link FavoriteChannelEvaluator}. */
 @SmallTest
+@RunWith(AndroidJUnit4.class)
 public class FavoriteChannelEvaluatorTest extends EvaluatorTestCase<FavoriteChannelEvaluator> {
     private static final int DEFAULT_NUMBER_OF_CHANNELS = 4;
     private static final long DEFAULT_WATCH_START_TIME_MS =
@@ -38,43 +41,52 @@ public class FavoriteChannelEvaluatorTest extends EvaluatorTestCase<FavoriteChan
         return new FavoriteChannelEvaluator();
     }
 
+    @Test
     public void testOneChannelWithNoWatchLog() {
         long channelId = addChannel().getId();
         notifyChannelAndWatchLogLoaded();
 
-        assertEquals(Recommender.Evaluator.NOT_RECOMMENDED,
-                mEvaluator.evaluateChannel(channelId));
+        assertEqualScores(
+                Recommender.Evaluator.NOT_RECOMMENDED, mEvaluator.evaluateChannel(channelId));
     }
 
+    @Test
     public void testOneChannelWithRandomWatchLogs() {
         addChannel();
-        addRandomWatchLogs(DEFAULT_WATCH_START_TIME_MS, DEFAULT_WATCH_END_TIME_MS,
+        addRandomWatchLogs(
+                DEFAULT_WATCH_START_TIME_MS,
+                DEFAULT_WATCH_END_TIME_MS,
                 DEFAULT_MAX_WATCH_DURATION_MS);
         notifyChannelAndWatchLogLoaded();
 
         assertChannelScoresValid();
     }
 
+    @Test
     public void testMultiChannelsWithNoWatchLog() {
         addChannels(DEFAULT_NUMBER_OF_CHANNELS);
         notifyChannelAndWatchLogLoaded();
 
         List<Long> channelIdList = getChannelIdListSorted();
         for (long channelId : channelIdList) {
-            assertEquals(Recommender.Evaluator.NOT_RECOMMENDED,
-                    mEvaluator.evaluateChannel(channelId));
+            assertEqualScores(
+                    Recommender.Evaluator.NOT_RECOMMENDED, mEvaluator.evaluateChannel(channelId));
         }
     }
 
+    @Test
     public void testMultiChannelsWithRandomWatchLogs() {
         addChannels(DEFAULT_NUMBER_OF_CHANNELS);
-        addRandomWatchLogs(DEFAULT_WATCH_START_TIME_MS, DEFAULT_WATCH_END_TIME_MS,
+        addRandomWatchLogs(
+                DEFAULT_WATCH_START_TIME_MS,
+                DEFAULT_WATCH_END_TIME_MS,
                 DEFAULT_MAX_WATCH_DURATION_MS);
         notifyChannelAndWatchLogLoaded();
 
         assertChannelScoresValid();
     }
 
+    @Test
     public void testMultiChannelsWithSimpleWatchLogs() {
         addChannels(DEFAULT_NUMBER_OF_CHANNELS);
         // For two channels which has ID x and y (x < y), the channel y is more watched
@@ -94,46 +106,63 @@ public class FavoriteChannelEvaluatorTest extends EvaluatorTestCase<FavoriteChan
         double previousScore = Recommender.Evaluator.NOT_RECOMMENDED;
         for (long channelId : channelIdList) {
             double score = mEvaluator.evaluateChannel(channelId);
-            assertTrue(previousScore <= score);
+      assertThat(previousScore).isAtMost(score);
             previousScore = score;
         }
     }
 
+    @Test
     public void testTwoChannelsWithSameWatchDuration() {
         long channelOne = addChannel().getId();
         long channelTwo = addChannel().getId();
-        addWatchLog(channelOne, System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1),
+        addWatchLog(
+                channelOne,
+                System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1),
                 TimeUnit.MINUTES.toMillis(30));
-        addWatchLog(channelTwo, System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(30),
+        addWatchLog(
+                channelTwo,
+                System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(30),
                 TimeUnit.MINUTES.toMillis(30));
         notifyChannelAndWatchLogLoaded();
 
-        assertTrue(mEvaluator.evaluateChannel(channelOne) ==
-                mEvaluator.evaluateChannel(channelTwo));
+    assertThat(mEvaluator.evaluateChannel(channelOne) == mEvaluator.evaluateChannel(channelTwo))
+        .isTrue();
     }
 
+    @Test
     public void testTwoChannelsWithDifferentWatchDuration() {
         long channelOne = addChannel().getId();
         long channelTwo = addChannel().getId();
-        addWatchLog(channelOne, System.currentTimeMillis() - TimeUnit.HOURS.toMillis(3),
+        addWatchLog(
+                channelOne,
+                System.currentTimeMillis() - TimeUnit.HOURS.toMillis(3),
                 TimeUnit.MINUTES.toMillis(30));
-        addWatchLog(channelTwo, System.currentTimeMillis() - TimeUnit.HOURS.toMillis(2),
+        addWatchLog(
+                channelTwo,
+                System.currentTimeMillis() - TimeUnit.HOURS.toMillis(2),
                 TimeUnit.HOURS.toMillis(1));
         notifyChannelAndWatchLogLoaded();
 
-        // Channel two was watched longer than channel one, so it's score is bigger.
-        assertTrue(mEvaluator.evaluateChannel(channelOne) < mEvaluator.evaluateChannel(channelTwo));
+    // Channel two was watched longer than channel one, so it's score is bigger.
+    assertThat(mEvaluator.evaluateChannel(channelOne))
+        .isLessThan(mEvaluator.evaluateChannel(channelTwo));
 
-        addWatchLog(channelOne, System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1),
+        addWatchLog(
+                channelOne,
+                System.currentTimeMillis() - TimeUnit.HOURS.toMillis(1),
                 TimeUnit.HOURS.toMillis(1));
 
-        // Now, channel one was watched longer than channel two, so it's score is bigger.
-        assertTrue(mEvaluator.evaluateChannel(channelOne) > mEvaluator.evaluateChannel(channelTwo));
+    // Now, channel one was watched longer than channel two, so it's score is bigger.
+    assertThat(mEvaluator.evaluateChannel(channelOne))
+        .isGreaterThan(mEvaluator.evaluateChannel(channelTwo));
     }
 
+    @Test
     public void testScoreIncreasesWithNewWatchLog() {
         long channelId = addChannel().getId();
-        addRandomWatchLogs(DEFAULT_WATCH_START_TIME_MS, DEFAULT_WATCH_END_TIME_MS,
+        addRandomWatchLogs(
+                DEFAULT_WATCH_START_TIME_MS,
+                DEFAULT_WATCH_END_TIME_MS,
                 DEFAULT_MAX_WATCH_DURATION_MS);
         notifyChannelAndWatchLogLoaded();
 
@@ -142,7 +171,7 @@ public class FavoriteChannelEvaluatorTest extends EvaluatorTestCase<FavoriteChan
 
         addWatchLog(channelId, latestWatchEndTimeMs, TimeUnit.MINUTES.toMillis(10));
 
-        // Score must be increased because total watch duration of the channel increases.
-        assertTrue(previousScore <= mEvaluator.evaluateChannel(channelId));
+    // Score must be increased because total watch duration of the channel increases.
+    assertThat(previousScore).isAtMost(mEvaluator.evaluateChannel(channelId));
     }
 }

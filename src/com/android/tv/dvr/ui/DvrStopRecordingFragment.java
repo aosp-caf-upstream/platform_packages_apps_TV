@@ -25,48 +25,36 @@ import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.v17.leanback.widget.GuidanceStylist.Guidance;
 import android.support.v17.leanback.widget.GuidedAction;
-import android.text.TextUtils;
-
 import com.android.tv.R;
-import com.android.tv.TvApplication;
-import com.android.tv.data.Channel;
-import com.android.tv.data.ChannelDataManager;
+import com.android.tv.TvSingletons;
 import com.android.tv.dvr.DvrDataManager;
 import com.android.tv.dvr.DvrDataManager.ScheduledRecordingListener;
-import com.android.tv.dvr.ScheduledRecording;
-
+import com.android.tv.dvr.data.ScheduledRecording;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.List;
 
 /**
  * A fragment which asks the user to make a recording schedule for the program.
- * <p>
- * If the program belongs to a series and the series recording is not created yet, we will show the
- * option to record all the episodes of the series.
+ *
+ * <p>If the program belongs to a series and the series recording is not created yet, we will show
+ * the option to record all the episodes of the series.
  */
 @TargetApi(Build.VERSION_CODES.N)
 public class DvrStopRecordingFragment extends DvrGuidedStepFragment {
-    /**
-     * The action ID for the stop action.
-     */
+    /** The action ID for the stop action. */
     public static final int ACTION_STOP = 1;
-    /**
-     * Key for the program.
-     * Type: {@link com.android.tv.data.Program}.
-     */
+    /** Key for the program. Type: {@link com.android.tv.data.Program}. */
     public static final String KEY_REASON = "DvrStopRecordingFragment.type";
 
     @Retention(RetentionPolicy.SOURCE)
     @IntDef({REASON_USER_STOP, REASON_ON_CONFLICT})
     public @interface ReasonType {}
-    /**
-     * The dialog is shown because users want to stop some currently recording program.
-     */
+    /** The dialog is shown because users want to stop some currently recording program. */
     public static final int REASON_USER_STOP = 1;
     /**
-     * The dialog is shown because users want to record some program that is conflict to the
-     * current recording program.
+     * The dialog is shown because users want to record some program that is conflict to the current
+     * recording program.
      */
     public static final int REASON_ON_CONFLICT = 2;
 
@@ -77,7 +65,7 @@ public class DvrStopRecordingFragment extends DvrGuidedStepFragment {
     private final ScheduledRecordingListener mScheduledRecordingListener =
             new ScheduledRecordingListener() {
                 @Override
-                public void onScheduledRecordingAdded(ScheduledRecording... schedules) { }
+                public void onScheduledRecordingAdded(ScheduledRecording... schedules) {}
 
                 @Override
                 public void onScheduledRecordingRemoved(ScheduledRecording... schedules) {
@@ -94,7 +82,7 @@ public class DvrStopRecordingFragment extends DvrGuidedStepFragment {
                     for (ScheduledRecording schedule : schedules) {
                         if (schedule.getId() == mSchedule.getId()
                                 && schedule.getState()
-                                != ScheduledRecording.STATE_RECORDING_IN_PROGRESS) {
+                                        != ScheduledRecording.STATE_RECORDING_IN_PROGRESS) {
                             dismissDialog();
                             return;
                         }
@@ -112,7 +100,7 @@ public class DvrStopRecordingFragment extends DvrGuidedStepFragment {
             dismissDialog();
             return;
         }
-        mDvrDataManager = TvApplication.getSingletons(context).getDvrDataManager();
+        mDvrDataManager = TvSingletons.getSingletons(context).getDvrDataManager();
         mDvrDataManager.addScheduledRecordingListener(mScheduledRecordingListener);
         mStopReason = args.getInt(KEY_REASON);
     }
@@ -131,15 +119,10 @@ public class DvrStopRecordingFragment extends DvrGuidedStepFragment {
         String title = getString(R.string.dvr_stop_recording_dialog_title);
         String description;
         if (mStopReason == REASON_ON_CONFLICT) {
-            String programTitle = mSchedule.getProgramTitle();
-            if (TextUtils.isEmpty(programTitle)) {
-                ChannelDataManager channelDataManager =
-                        TvApplication.getSingletons(getActivity()).getChannelDataManager();
-                Channel channel = channelDataManager.getChannel(mSchedule.getChannelId());
-                programTitle = channel.getDisplayName();
-            }
-            description = getString(R.string.dvr_stop_recording_dialog_description_on_conflict,
-                    mSchedule.getProgramTitle());
+            description =
+                    getString(
+                            R.string.dvr_stop_recording_dialog_description_on_conflict,
+                            mSchedule.getProgramDisplayTitle(getContext()));
         } else {
             description = getString(R.string.dvr_stop_recording_dialog_description);
         }
@@ -150,12 +133,29 @@ public class DvrStopRecordingFragment extends DvrGuidedStepFragment {
     @Override
     public void onCreateActions(@NonNull List<GuidedAction> actions, Bundle savedInstanceState) {
         Context context = getContext();
-        actions.add(new GuidedAction.Builder(context)
-                .id(ACTION_STOP)
-                .title(R.string.dvr_action_stop)
-                .build());
-        actions.add(new GuidedAction.Builder(context)
-                .clickAction(GuidedAction.ACTION_ID_CANCEL)
-                .build());
+        actions.add(
+                new GuidedAction.Builder(context)
+                        .id(ACTION_STOP)
+                        .title(R.string.dvr_action_stop)
+                        .build());
+        actions.add(
+                new GuidedAction.Builder(context)
+                        .clickAction(GuidedAction.ACTION_ID_CANCEL)
+                        .build());
+    }
+
+    @Override
+    public String getTrackerPrefix() {
+        return "DvrStopRecordingFragment";
+    }
+
+    @Override
+    public String getTrackerLabelForGuidedAction(GuidedAction action) {
+        long actionId = action.getId();
+        if (actionId == ACTION_STOP) {
+            return "stop";
+        } else {
+            return super.getTrackerLabelForGuidedAction(action);
+        }
     }
 }

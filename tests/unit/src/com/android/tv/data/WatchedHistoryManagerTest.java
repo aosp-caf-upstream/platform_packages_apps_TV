@@ -16,78 +16,73 @@
 
 package com.android.tv.data;
 
-import android.support.test.filters.SmallTest;
-import android.support.test.filters.Suppress;
-import android.test.AndroidTestCase;
-import android.test.UiThreadTest;
+import static android.support.test.InstrumentationRegistry.getTargetContext;
+import static com.google.common.truth.Truth.assertThat;
 
+import android.os.Looper;
+import android.support.test.filters.MediumTest;
+import android.support.test.runner.AndroidJUnit4;
 import com.android.tv.data.WatchedHistoryManager.WatchedRecord;
-import com.android.tv.testing.Utils;
-
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
 
 /**
  * Test for {@link com.android.tv.data.WatchedHistoryManagerTest}
+ *
+ * <p>This is a medium test because it load files which accessing SharedPreferences.
  */
-@SmallTest
-@Suppress // http://b/27156462
-public class WatchedHistoryManagerTest extends AndroidTestCase {
-    private static final boolean DEBUG = false;
-    private static final String TAG = "WatchedHistoryManager";
-
+@MediumTest
+@RunWith(AndroidJUnit4.class)
+public class WatchedHistoryManagerTest {
     // Wait time for expected success.
-    private static final long WAIT_TIME_OUT_MS = 1000L;
     private static final int MAX_HISTORY_SIZE = 100;
 
     private WatchedHistoryManager mWatchedHistoryManager;
     private TestWatchedHistoryManagerListener mListener;
 
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
-        Utils.runOnMainSync(new Runnable() {
-            @Override
-            public void run() {
-                mWatchedHistoryManager = new WatchedHistoryManager(getContext(), MAX_HISTORY_SIZE);
-                mListener = new TestWatchedHistoryManagerListener();
-                mWatchedHistoryManager.setListener(mListener);
-            }
-        });
+    @Before
+    public void setUp() {
+        if (Looper.myLooper() == null) {
+            Looper.prepare();
+        }
+        mWatchedHistoryManager = new WatchedHistoryManager(getTargetContext(), MAX_HISTORY_SIZE);
+        mListener = new TestWatchedHistoryManagerListener();
+        mWatchedHistoryManager.setListener(mListener);
     }
 
-    private void startAndWaitForComplete() throws Exception {
+    private void startAndWaitForComplete() throws InterruptedException {
         mWatchedHistoryManager.start();
-        assertTrue(mListener.loadFinishedLatch.await(WAIT_TIME_OUT_MS, TimeUnit.MILLISECONDS));
+        assertThat(mListener.mLoadFinished).isTrue();
     }
 
-    @UiThreadTest
-    public void testIsLoaded() throws Exception {
-        assertFalse(mWatchedHistoryManager.isLoaded());
+    @Test
+    public void testIsLoaded() throws InterruptedException {
         startAndWaitForComplete();
-        assertTrue(mWatchedHistoryManager.isLoaded());
+        assertThat(mWatchedHistoryManager.isLoaded()).isTrue();
     }
 
-    @UiThreadTest
-    public void testLogChannelViewStop() throws Exception {
+    @Test
+    public void testLogChannelViewStop() throws InterruptedException {
         startAndWaitForComplete();
         long fakeId = 100000000;
         long time = System.currentTimeMillis();
         long duration = TimeUnit.MINUTES.toMillis(10);
-        Channel channel = new Channel.Builder().setId(fakeId).build();
+        ChannelImpl channel = new ChannelImpl.Builder().setId(fakeId).build();
         mWatchedHistoryManager.logChannelViewStop(channel, time, duration);
 
         WatchedRecord record = mWatchedHistoryManager.getRecord(0);
         WatchedRecord recordFromSharedPreferences =
                 mWatchedHistoryManager.getRecordFromSharedPreferences(0);
-        assertEquals(record.channelId, fakeId);
-        assertEquals(record.watchedStartTime, time - duration);
-        assertEquals(record.duration, duration);
-        assertEquals(record, recordFromSharedPreferences);
+        assertThat(fakeId).isEqualTo(record.channelId);
+        assertThat(time - duration).isEqualTo(record.watchedStartTime);
+        assertThat(duration).isEqualTo(record.duration);
+        assertThat(recordFromSharedPreferences).isEqualTo(record);
     }
 
-    @UiThreadTest
-    public void testCircularHistoryQueue() throws Exception {
+    @Test
+    public void testCircularHistoryQueue() throws InterruptedException {
         startAndWaitForComplete();
         final long startChannelId = 100000000;
         long time = System.currentTimeMillis();
@@ -95,50 +90,51 @@ public class WatchedHistoryManagerTest extends AndroidTestCase {
 
         int size = MAX_HISTORY_SIZE * 2;
         for (int i = 0; i < size; ++i) {
-            Channel channel = new Channel.Builder().setId(startChannelId + i).build();
+            ChannelImpl channel = new ChannelImpl.Builder().setId(startChannelId + i).build();
             mWatchedHistoryManager.logChannelViewStop(channel, time + duration * i, duration);
         }
         for (int i = 0; i < MAX_HISTORY_SIZE; ++i) {
             WatchedRecord record = mWatchedHistoryManager.getRecord(i);
             WatchedRecord recordFromSharedPreferences =
                     mWatchedHistoryManager.getRecordFromSharedPreferences(i);
-            assertEquals(record, recordFromSharedPreferences);
-            assertEquals(record.channelId, startChannelId + size - 1 - i);
+            assertThat(recordFromSharedPreferences).isEqualTo(record);
+            assertThat(startChannelId + size - 1 - i).isEqualTo(record.channelId);
         }
         // Since the WatchedHistory is a circular queue, the value for 0 and maxHistorySize
         // are same.
-        assertEquals(mWatchedHistoryManager.getRecordFromSharedPreferences(0),
-                mWatchedHistoryManager.getRecordFromSharedPreferences(MAX_HISTORY_SIZE));
+        assertThat(mWatchedHistoryManager.getRecordFromSharedPreferences(MAX_HISTORY_SIZE))
+                .isEqualTo(mWatchedHistoryManager.getRecordFromSharedPreferences(0));
     }
 
-    @UiThreadTest
+    @Test
     public void testWatchedRecordEquals() {
-        assertTrue(new WatchedRecord(1, 2, 3).equals(new WatchedRecord(1, 2, 3)));
-        assertFalse(new WatchedRecord(1, 2, 3).equals(new WatchedRecord(1, 2, 4)));
-        assertFalse(new WatchedRecord(1, 2, 3).equals(new WatchedRecord(1, 4, 3)));
-        assertFalse(new WatchedRecord(1, 2, 3).equals(new WatchedRecord(4, 2, 3)));
+        assertThat(new WatchedRecord(1, 2, 3).equals(new WatchedRecord(1, 2, 3))).isTrue();
+        assertThat(new WatchedRecord(1, 2, 3).equals(new WatchedRecord(1, 2, 4))).isFalse();
+        assertThat(new WatchedRecord(1, 2, 3).equals(new WatchedRecord(1, 4, 3))).isFalse();
+        assertThat(new WatchedRecord(1, 2, 3).equals(new WatchedRecord(4, 2, 3))).isFalse();
     }
 
-    @UiThreadTest
-    public void testEncodeDecodeWatchedRecord() throws Exception {
+    @Test
+    public void testEncodeDecodeWatchedRecord() {
         long fakeId = 100000000;
         long time = System.currentTimeMillis();
         long duration = TimeUnit.MINUTES.toMillis(10);
         WatchedRecord record = new WatchedRecord(fakeId, time, duration);
-        WatchedRecord sameRecord = mWatchedHistoryManager.decode(
-                mWatchedHistoryManager.encode(record));
-        assertEquals(record, sameRecord);
+        WatchedRecord sameRecord =
+                mWatchedHistoryManager.decode(mWatchedHistoryManager.encode(record));
+        assertThat(sameRecord).isEqualTo(record);
     }
 
-    private class TestWatchedHistoryManagerListener implements WatchedHistoryManager.Listener {
-        public final CountDownLatch loadFinishedLatch = new CountDownLatch(1);
+    private static final class TestWatchedHistoryManagerListener
+            implements WatchedHistoryManager.Listener {
+        boolean mLoadFinished;
 
         @Override
         public void onLoadFinished() {
-            loadFinishedLatch.countDown();
+            mLoadFinished = true;
         }
 
         @Override
-        public void onNewRecordAdded(WatchedRecord watchedRecord) { }
+        public void onNewRecordAdded(WatchedRecord watchedRecord) {}
     }
 }

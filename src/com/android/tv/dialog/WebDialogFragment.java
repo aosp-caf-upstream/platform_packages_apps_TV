@@ -28,25 +28,24 @@ import android.view.ViewGroup.LayoutParams;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
-/**
- * A DialogFragment that shows a web view.
- */
+/** A DialogFragment that shows a web view. */
 public class WebDialogFragment extends SafeDismissDialogFragment {
     private static final String TAG = "WebDialogFragment";
     private static final String URL = "URL";
     private static final String TITLE = "TITLE";
     private static final String TRACKER_LABEL = "TRACKER_LABEL";
 
+    private WebView mWebView;
     private String mTrackerLabel;
 
     /**
      * Create a new WebDialogFragment to show a particular web page.
      *
-     * @param url   The URL of the content to show.
+     * @param url The URL of the content to show.
      * @param title Optional title for the dialog.
      */
-    public static WebDialogFragment newInstance(String url, @Nullable String title,
-            String trackerLabel) {
+    public static WebDialogFragment newInstance(
+            String url, @Nullable String title, String trackerLabel) {
         WebDialogFragment f = new WebDialogFragment();
         Bundle args = new Bundle();
         args.putString(URL, url);
@@ -61,25 +60,35 @@ public class WebDialogFragment extends SafeDismissDialogFragment {
         super.onCreate(savedInstanceState);
         String title = getArguments().getString(TITLE);
         mTrackerLabel = getArguments().getString(TRACKER_LABEL);
-        int style = TextUtils.isEmpty(title) ? DialogFragment.STYLE_NO_TITLE
-                : DialogFragment.STYLE_NORMAL;
+        int style =
+                TextUtils.isEmpty(title)
+                        ? DialogFragment.STYLE_NO_TITLE
+                        : DialogFragment.STYLE_NORMAL;
         setStyle(style, 0);
     }
 
     @Nullable
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container,
-            Bundle savedInstanceState) {
+    public View onCreateView(
+            LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         String title = getArguments().getString(TITLE);
         getDialog().setTitle(title);
 
-        WebView webView = new WebView(getActivity());
-        webView.setWebViewClient(new WebViewClient());
+        mWebView = new WebView(getActivity());
+        mWebView.setWebViewClient(new WebViewClient());
         String url = getArguments().getString(URL);
-        webView.loadUrl(url);
+        mWebView.loadUrl(url);
         Log.d(TAG, "Loading web content from " + url);
 
-        return webView;
+        return mWebView;
+    }
+
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        if (mWebView != null) {
+            mWebView.destroy();
+        }
     }
 
     @Override

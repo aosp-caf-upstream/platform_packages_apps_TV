@@ -19,9 +19,7 @@ import android.support.test.uiautomator.Direction;
 import android.support.test.uiautomator.UiDevice;
 import android.view.KeyEvent;
 
-/**
- * Static utility methods for {@link UiDevice}.
- */
+/** Static utility methods for {@link UiDevice}. */
 public final class UiDeviceUtils {
 
     public static void pressDpad(UiDevice uiDevice, Direction direction) {
@@ -43,7 +41,6 @@ public final class UiDeviceUtils {
         }
     }
 
-
     public static void pressKeys(UiDevice uiDevice, int... keyCodes) {
         for (int k : keyCodes) {
             uiDevice.pressKeyCode(k);
@@ -51,9 +48,9 @@ public final class UiDeviceUtils {
     }
 
     /**
-     * Parses the string and sends the corresponding individual key preses.
-     * <p>
-     * <b>Note:</b> only handles 0-9, '.', and '-'.
+     * Parses the string and sends the corresponding individual key presses.
+     *
+     * <p><b>Note:</b> only handles 0-9, '.', and '-'.
      */
     public static void pressKeys(UiDevice uiDevice, String keys) {
         for (char c : keys.toCharArray()) {
@@ -69,6 +66,5 @@ public final class UiDeviceUtils {
         }
     }
 
-    private UiDeviceUtils() {
-    }
+    private UiDeviceUtils() {}
 }

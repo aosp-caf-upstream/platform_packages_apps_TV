@@ -18,33 +18,31 @@ package com.android.tv.menu;
 
 import android.content.Context;
 import android.content.res.Resources;
+import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.util.AttributeSet;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import com.android.tv.MainActivity;
 import com.android.tv.R;
 import com.android.tv.TimeShiftManager;
 import com.android.tv.TimeShiftManager.TimeShiftActionId;
-import com.android.tv.TvApplication;
+import com.android.tv.TvSingletons;
 import com.android.tv.common.SoftPreconditions;
 import com.android.tv.common.feature.CommonFeatures;
-import com.android.tv.data.Channel;
 import com.android.tv.data.Program;
+import com.android.tv.data.api.Channel;
+import com.android.tv.dialog.HalfSizedDialogFragment;
 import com.android.tv.dvr.DvrDataManager;
 import com.android.tv.dvr.DvrDataManager.OnDvrScheduleLoadFinishedListener;
 import com.android.tv.dvr.DvrDataManager.ScheduledRecordingListener;
 import com.android.tv.dvr.DvrManager;
-import com.android.tv.dvr.DvrUiHelper;
-import com.android.tv.dvr.ScheduledRecording;
+import com.android.tv.dvr.data.ScheduledRecording;
 import com.android.tv.dvr.ui.DvrStopRecordingFragment;
-import com.android.tv.dvr.ui.HalfSizedDialogFragment;
+import com.android.tv.dvr.ui.DvrUiHelper;
 import com.android.tv.menu.Menu.MenuShowReason;
 import com.android.tv.ui.TunableTvView;
-import com.android.tv.util.Utils;
 
 public class PlayControlsRowView extends MenuRowView {
     private static final int NORMAL_WIDTH_MAX_BUTTON_COUNT = 5;
@@ -53,14 +51,10 @@ public class PlayControlsRowView extends MenuRowView {
     private final int mTimeTextLeftMargin;
     private final int mTimelineWidth;
     // Views
-    private View mBackgroundView;
+    private TextView mBackgroundView;
     private View mTimeIndicator;
     private TextView mTimeText;
-    private View mProgressEmptyBefore;
-    private View mProgressWatched;
-    private View mProgressBuffered;
-    private View mProgressEmptyAfter;
-    private View mControlBar;
+    private PlaybackProgressBar mProgress;
     private PlayControlsButton mJumpPreviousButton;
     private PlayControlsButton mRewindButton;
     private PlayControlsButton mPlayPauseButton;
@@ -69,7 +63,6 @@ public class PlayControlsRowView extends MenuRowView {
     private PlayControlsButton mRecordButton;
     private TextView mProgramStartTimeText;
     private TextView mProgramEndTimeText;
-    private View mUnavailableMessageText;
     private TunableTvView mTvView;
     private TimeShiftManager mTimeShiftManager;
     private final DvrDataManager mDvrDataManager;
@@ -83,27 +76,31 @@ public class PlayControlsRowView extends MenuRowView {
     private final int mNormalButtonMargin;
     private final int mCompactButtonMargin;
 
-    private final ScheduledRecordingListener mScheduledRecordingListener
-            = new ScheduledRecordingListener() {
-        @Override
-        public void onScheduledRecordingAdded(ScheduledRecording... scheduledRecordings) { }
+    private final String mUnavailableMessage;
 
-        @Override
-        public void onScheduledRecordingRemoved(ScheduledRecording... scheduledRecordings) { }
+    private final ScheduledRecordingListener mScheduledRecordingListener =
+            new ScheduledRecordingListener() {
+                @Override
+                public void onScheduledRecordingAdded(ScheduledRecording... scheduledRecordings) {}
 
-        @Override
-        public void onScheduledRecordingStatusChanged(ScheduledRecording... scheduledRecordings) {
-            Channel currentChannel = mMainActivity.getCurrentChannel();
-            if (currentChannel != null && isShown()) {
-                for (ScheduledRecording schedule : scheduledRecordings) {
-                    if (schedule.getChannelId() == currentChannel.getId()) {
-                        updateRecordButton();
-                        break;
+                @Override
+                public void onScheduledRecordingRemoved(
+                        ScheduledRecording... scheduledRecordings) {}
+
+                @Override
+                public void onScheduledRecordingStatusChanged(
+                        ScheduledRecording... scheduledRecordings) {
+                    Channel currentChannel = mMainActivity.getCurrentChannel();
+                    if (currentChannel != null && isShown()) {
+                        for (ScheduledRecording schedule : scheduledRecordings) {
+                            if (schedule.getChannelId() == currentChannel.getId()) {
+                                updateRecordButton();
+                                break;
+                            }
+                        }
                     }
                 }
-            }
-        }
-    };
+            };
 
     public PlayControlsRowView(Context context) {
         this(context, null);
@@ -117,27 +114,27 @@ public class PlayControlsRowView extends MenuRowView {
         this(context, attrs, defStyleAttr, 0);
     }
 
-    public PlayControlsRowView(Context context, AttributeSet attrs, int defStyleAttr,
-            int defStyleRes) {
+    public PlayControlsRowView(
+            Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
         Resources res = context.getResources();
         mTimeIndicatorLeftMargin =
-                - res.getDimensionPixelSize(R.dimen.play_controls_time_indicator_width) / 2;
-        mTimeTextLeftMargin =
-                - res.getDimensionPixelOffset(R.dimen.play_controls_time_width) / 2;
+                -res.getDimensionPixelSize(R.dimen.play_controls_time_indicator_width) / 2;
+        mTimeTextLeftMargin = -res.getDimensionPixelOffset(R.dimen.play_controls_time_width) / 2;
         mTimelineWidth = res.getDimensionPixelSize(R.dimen.play_controls_width);
         mTimeFormat = DateFormat.getTimeFormat(context);
         mNormalButtonMargin = res.getDimensionPixelSize(R.dimen.play_controls_button_normal_margin);
         mCompactButtonMargin =
                 res.getDimensionPixelSize(R.dimen.play_controls_button_compact_margin);
         if (CommonFeatures.DVR.isEnabled(context)) {
-            mDvrDataManager = TvApplication.getSingletons(context).getDvrDataManager();
-            mDvrManager = TvApplication.getSingletons(context).getDvrManager();
+            mDvrDataManager = TvSingletons.getSingletons(context).getDvrDataManager();
+            mDvrManager = TvSingletons.getSingletons(context).getDvrManager();
         } else {
             mDvrDataManager = null;
             mDvrManager = null;
         }
         mMainActivity = (MainActivity) context;
+        mUnavailableMessage = res.getString(R.string.play_controls_unavailable);
     }
 
     @Override
@@ -157,7 +154,6 @@ public class PlayControlsRowView extends MenuRowView {
                             }
                         });
             }
-
         }
     }
 
@@ -171,14 +167,10 @@ public class PlayControlsRowView extends MenuRowView {
         super.onFinishInflate();
         // Clip the ViewGroup(body) to the rounded rectangle of outline.
         findViewById(R.id.body).setClipToOutline(true);
-        mBackgroundView = findViewById(R.id.background);
+        mBackgroundView = (TextView) findViewById(R.id.background);
         mTimeIndicator = findViewById(R.id.time_indicator);
         mTimeText = (TextView) findViewById(R.id.time_text);
-        mProgressEmptyBefore = findViewById(R.id.timeline_bg_start);
-        mProgressWatched = findViewById(R.id.watched);
-        mProgressBuffered = findViewById(R.id.buffered);
-        mProgressEmptyAfter = findViewById(R.id.timeline_bg_end);
-        mControlBar = findViewById(R.id.play_control_bar);
+        mProgress = (PlaybackProgressBar) findViewById(R.id.progress);
         mJumpPreviousButton = (PlayControlsButton) findViewById(R.id.jump_previous);
         mRewindButton = (PlayControlsButton) findViewById(R.id.rewind);
         mPlayPauseButton = (PlayControlsButton) findViewById(R.id.play_pause);
@@ -187,107 +179,142 @@ public class PlayControlsRowView extends MenuRowView {
         mRecordButton = (PlayControlsButton) findViewById(R.id.record);
         mProgramStartTimeText = (TextView) findViewById(R.id.program_start_time);
         mProgramEndTimeText = (TextView) findViewById(R.id.program_end_time);
-        mUnavailableMessageText = findViewById(R.id.unavailable_text);
 
-        initializeButton(mJumpPreviousButton, R.drawable.lb_ic_skip_previous,
-                R.string.play_controls_description_skip_previous, null, new Runnable() {
-            @Override
-            public void run() {
-                if (mTimeShiftManager.isAvailable()) {
-                    mTimeShiftManager.jumpToPrevious();
-                    updateControls();
-                }
-            }
-        });
-        initializeButton(mRewindButton, R.drawable.lb_ic_fast_rewind,
-                R.string.play_controls_description_fast_rewind, null, new Runnable() {
-            @Override
-            public void run() {
-                if (mTimeShiftManager.isAvailable()) {
-                    mTimeShiftManager.rewind();
-                    updateButtons();
-                }
-            }
-        });
-        initializeButton(mPlayPauseButton, R.drawable.lb_ic_play,
-                R.string.play_controls_description_play_pause, null, new Runnable() {
-            @Override
-            public void run() {
-                if (mTimeShiftManager.isAvailable()) {
-                    mTimeShiftManager.togglePlayPause();
-                    updateButtons();
-                }
-            }
-        });
-        initializeButton(mFastForwardButton, R.drawable.lb_ic_fast_forward,
-                R.string.play_controls_description_fast_forward, null, new Runnable() {
-            @Override
-            public void run() {
-                if (mTimeShiftManager.isAvailable()) {
-                    mTimeShiftManager.fastForward();
-                    updateButtons();
-                }
-            }
-        });
-        initializeButton(mJumpNextButton, R.drawable.lb_ic_skip_next,
-                R.string.play_controls_description_skip_next, null, new Runnable() {
-            @Override
-            public void run() {
-                if (mTimeShiftManager.isAvailable()) {
-                    mTimeShiftManager.jumpToNext();
-                    updateControls();
-                }
-            }
-        });
-        int color = getResources().getColor(R.color.play_controls_recording_icon_color_on_focus,
-                null);
-        initializeButton(mRecordButton, R.drawable.ic_record_start, R.string
-                .channels_item_record_start, color, new Runnable() {
-            @Override
-            public void run() {
-                onRecordButtonClicked();
-            }
-        });
+        initializeButton(
+                mJumpPreviousButton,
+                R.drawable.lb_ic_skip_previous,
+                R.string.play_controls_description_skip_previous,
+                null,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        if (mTimeShiftManager.isAvailable()) {
+                            mTimeShiftManager.jumpToPrevious();
+                            updateControls(true);
+                        }
+                    }
+                });
+        initializeButton(
+                mRewindButton,
+                R.drawable.lb_ic_fast_rewind,
+                R.string.play_controls_description_fast_rewind,
+                null,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        if (mTimeShiftManager.isAvailable()) {
+                            mTimeShiftManager.rewind();
+                            updateButtons();
+                        }
+                    }
+                });
+        initializeButton(
+                mPlayPauseButton,
+                R.drawable.lb_ic_play,
+                R.string.play_controls_description_play_pause,
+                null,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        if (mTimeShiftManager.isAvailable()) {
+                            mTimeShiftManager.togglePlayPause();
+                            updateButtons();
+                        }
+                    }
+                });
+        initializeButton(
+                mFastForwardButton,
+                R.drawable.lb_ic_fast_forward,
+                R.string.play_controls_description_fast_forward,
+                null,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        if (mTimeShiftManager.isAvailable()) {
+                            mTimeShiftManager.fastForward();
+                            updateButtons();
+                        }
+                    }
+                });
+        initializeButton(
+                mJumpNextButton,
+                R.drawable.lb_ic_skip_next,
+                R.string.play_controls_description_skip_next,
+                null,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        if (mTimeShiftManager.isAvailable()) {
+                            mTimeShiftManager.jumpToNext();
+                            updateControls(true);
+                        }
+                    }
+                });
+        int color =
+                getResources().getColor(R.color.play_controls_recording_icon_color_on_focus, null);
+        initializeButton(
+                mRecordButton,
+                R.drawable.ic_record_start,
+                R.string.channels_item_record_start,
+                color,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        onRecordButtonClicked();
+                    }
+                });
     }
 
     private boolean isCurrentChannelRecording() {
         Channel currentChannel = mMainActivity.getCurrentChannel();
-        return currentChannel != null && mDvrManager != null
+        return currentChannel != null
+                && mDvrManager != null
                 && mDvrManager.getCurrentRecording(currentChannel.getId()) != null;
     }
 
     private void onRecordButtonClicked() {
         boolean isRecording = isCurrentChannelRecording();
         Channel currentChannel = mMainActivity.getCurrentChannel();
-        TvApplication.getSingletons(getContext()).getTracker().sendMenuClicked(isRecording ?
-                R.string.channels_item_record_start : R.string.channels_item_record_stop);
+        TvSingletons.getSingletons(getContext())
+                .getTracker()
+                .sendMenuClicked(
+                        isRecording
+                                ? R.string.channels_item_record_start
+                                : R.string.channels_item_record_stop);
         if (!isRecording) {
             if (!(mDvrManager != null && mDvrManager.isChannelRecordable(currentChannel))) {
-                Toast.makeText(mMainActivity, R.string.dvr_msg_cannot_record_channel,
-                        Toast.LENGTH_SHORT).show();
-            } else if (DvrUiHelper.checkStorageStatusAndShowErrorMessage(mMainActivity,
-                    currentChannel.getInputId())) {
-                Program program = TvApplication.getSingletons(mMainActivity).getProgramDataManager()
-                        .getCurrentProgram(currentChannel.getId());
-                if (program == null) {
-                    DvrUiHelper.showChannelRecordDurationOptions(mMainActivity, currentChannel);
-                } else if (DvrUiHelper.handleCreateSchedule(mMainActivity, program)) {
-                    String msg = mMainActivity.getString(R.string.dvr_msg_current_program_scheduled,
-                            program.getTitle(),
-                            Utils.toTimeString(program.getEndTimeUtcMillis(), false));
-                    Toast.makeText(mMainActivity, msg, Toast.LENGTH_SHORT).show();
-                }
+                Toast.makeText(
+                                mMainActivity,
+                                R.string.dvr_msg_cannot_record_channel,
+                                Toast.LENGTH_SHORT)
+                        .show();
+            } else {
+                Program program =
+                        TvSingletons.getSingletons(mMainActivity)
+                                .getProgramDataManager()
+                                .getCurrentProgram(currentChannel.getId());
+                DvrUiHelper.checkStorageStatusAndShowErrorMessage(
+                        mMainActivity,
+                        currentChannel.getInputId(),
+                        new Runnable() {
+                            @Override
+                            public void run() {
+                                DvrUiHelper.requestRecordingCurrentProgram(
+                                        mMainActivity, currentChannel, program, true);
+                            }
+                        });
             }
         } else if (currentChannel != null) {
-            DvrUiHelper.showStopRecordingDialog(mMainActivity, currentChannel.getId(),
+            DvrUiHelper.showStopRecordingDialog(
+                    mMainActivity,
+                    currentChannel.getId(),
                     DvrStopRecordingFragment.REASON_USER_STOP,
                     new HalfSizedDialogFragment.OnActionClickListener() {
                         @Override
                         public void onActionClick(long actionId) {
                             if (actionId == DvrStopRecordingFragment.ACTION_STOP) {
                                 ScheduledRecording currentRecording =
-                                        mDvrManager.getCurrentRecording(
-                                                currentChannel.getId());
+                                        mDvrManager.getCurrentRecording(currentChannel.getId());
                                 if (currentRecording != null) {
                                     mDvrManager.stopRecording(currentRecording);
                                 }
@@ -297,8 +324,12 @@ public class PlayControlsRowView extends MenuRowView {
         }
     }
 
-    private void initializeButton(PlayControlsButton button, int imageResId,
-            int descriptionId, Integer focusedIconColor, Runnable clickAction) {
+    private void initializeButton(
+            PlayControlsButton button,
+            int imageResId,
+            int descriptionId,
+            Integer focusedIconColor,
+            Runnable clickAction) {
         button.setImageResId(imageResId);
         button.setAction(clickAction);
         if (focusedIconColor != null) {
@@ -314,72 +345,81 @@ public class PlayControlsRowView extends MenuRowView {
         PlayControlsRow playControlsRow = (PlayControlsRow) row;
         mTvView = playControlsRow.getTvView();
         mTimeShiftManager = playControlsRow.getTimeShiftManager();
-        mTimeShiftManager.setListener(new TimeShiftManager.Listener() {
-            @Override
-            public void onAvailabilityChanged() {
-                updateMenuVisibility();
-                if (isShown()) {
-                    PlayControlsRowView.this.updateAll();
-                }
-            }
+        mTimeShiftManager.setListener(
+                new TimeShiftManager.Listener() {
+                    @Override
+                    public void onAvailabilityChanged() {
+                        updateMenuVisibility();
+                        PlayControlsRowView.this.updateAll(false);
+                    }
 
-            @Override
-            public void onPlayStatusChanged(int status) {
-                updateMenuVisibility();
-                if (mTimeShiftManager.isAvailable() && isShown()) {
-                    updateControls();
-                }
-            }
+                    @Override
+                    public void onPlayStatusChanged(int status) {
+                        updateMenuVisibility();
+                        if (mTimeShiftManager.isAvailable()) {
+                            updateControls(false);
+                        }
+                    }
 
-            @Override
-            public void onRecordTimeRangeChanged() {
-                if (mTimeShiftManager.isAvailable() && isShown()) {
-                    updateControls();
-                }
-            }
+                    @Override
+                    public void onRecordTimeRangeChanged() {
+                        if (mTimeShiftManager.isAvailable()) {
+                            updateControls(false);
+                        }
+                    }
 
-            @Override
-            public void onCurrentPositionChanged() {
-                if (mTimeShiftManager.isAvailable() && isShown()) {
-                    initializeTimeline();
-                    updateControls();
-                }
-            }
+                    @Override
+                    public void onCurrentPositionChanged() {
+                        if (mTimeShiftManager.isAvailable()) {
+                            initializeTimeline();
+                            updateControls(false);
+                        }
+                    }
 
-            @Override
-            public void onProgramInfoChanged() {
-                if (mTimeShiftManager.isAvailable() && isShown()) {
-                    initializeTimeline();
-                    updateControls();
-                }
-            }
+                    @Override
+                    public void onProgramInfoChanged() {
+                        if (mTimeShiftManager.isAvailable()) {
+                            initializeTimeline();
+                            updateControls(false);
+                        }
+                    }
 
-            @Override
-            public void onActionEnabledChanged(@TimeShiftActionId int actionId, boolean enabled) {
-                // Move focus to the play/pause button when the PREVIOUS, NEXT, REWIND or
-                // FAST_FORWARD button is clicked and the button becomes disabled.
-                // No need to update the UI here because the UI will be updated by other callbacks.
-                if (!enabled &&
-                        ((actionId == TimeShiftManager.TIME_SHIFT_ACTION_ID_JUMP_TO_PREVIOUS
-                                && mJumpPreviousButton.hasFocus())
-                        || (actionId == TimeShiftManager.TIME_SHIFT_ACTION_ID_REWIND
-                                && mRewindButton.hasFocus())
-                        || (actionId == TimeShiftManager.TIME_SHIFT_ACTION_ID_FAST_FORWARD
-                                && mFastForwardButton.hasFocus())
-                        || (actionId == TimeShiftManager.TIME_SHIFT_ACTION_ID_JUMP_TO_NEXT
-                                && mJumpNextButton.hasFocus()))) {
-                    mPlayPauseButton.requestFocus();
-                }
-            }
-        });
-        updateAll();
+                    @Override
+                    public void onActionEnabledChanged(
+                            @TimeShiftActionId int actionId, boolean enabled) {
+                        // Move focus to the play/pause button when the PREVIOUS, NEXT, REWIND or
+                        // FAST_FORWARD button is clicked and the button becomes disabled.
+                        // No need to update the UI here because the UI will be updated by other
+                        // callbacks.
+                        if (!enabled
+                                && ((actionId
+                                                        == TimeShiftManager
+                                                                .TIME_SHIFT_ACTION_ID_JUMP_TO_PREVIOUS
+                                                && mJumpPreviousButton.hasFocus())
+                                        || (actionId == TimeShiftManager.TIME_SHIFT_ACTION_ID_REWIND
+                                                && mRewindButton.hasFocus())
+                                        || (actionId
+                                                        == TimeShiftManager
+                                                                .TIME_SHIFT_ACTION_ID_FAST_FORWARD
+                                                && mFastForwardButton.hasFocus())
+                                        || (actionId
+                                                        == TimeShiftManager
+                                                                .TIME_SHIFT_ACTION_ID_JUMP_TO_NEXT
+                                                && mJumpNextButton.hasFocus()))) {
+                            mPlayPauseButton.requestFocus();
+                        }
+                    }
+                });
+        // force update to initialize everything
+        updateAll(true);
     }
 
     private void initializeTimeline() {
-        Program program = mTimeShiftManager.getProgramAt(
-                mTimeShiftManager.getCurrentPositionMs());
+        Program program = mTimeShiftManager.getProgramAt(mTimeShiftManager.getCurrentPositionMs());
         mProgramStartTimeMs = program.getStartTimeUtcMillis();
         mProgramEndTimeMs = program.getEndTimeUtcMillis();
+        mProgress.setMax(mProgramEndTimeMs - mProgramStartTimeMs);
+        updateRecTimeText();
         SoftPreconditions.checkArgument(mProgramStartTimeMs <= mProgramEndTimeMs);
     }
 
@@ -389,10 +429,13 @@ public class PlayControlsRowView extends MenuRowView {
         getMenu().setKeepVisible(keepMenuVisible);
     }
 
+    public void onPreselected() {
+        updateControls(true);
+    }
+
     @Override
     public void onSelected(boolean showTitle) {
         super.onSelected(showTitle);
-        updateControls();
         postHideRippleAnimation();
     }
 
@@ -446,16 +489,17 @@ public class PlayControlsRowView extends MenuRowView {
         // Focus may be changed in another message if requestFocus is called in this message.
         // After the focus is actually changed, hideRippleAnimation should run
         // to reflect the result of the focus change. To be sure, hideRippleAnimation is posted.
-        post(new Runnable() {
-            @Override
-            public void run() {
-                mJumpPreviousButton.hideRippleAnimation();
-                mRewindButton.hideRippleAnimation();
-                mPlayPauseButton.hideRippleAnimation();
-                mFastForwardButton.hideRippleAnimation();
-                mJumpNextButton.hideRippleAnimation();
-            }
-        });
+        post(
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        mJumpPreviousButton.hideRippleAnimation();
+                        mRewindButton.hideRippleAnimation();
+                        mPlayPauseButton.hideRippleAnimation();
+                        mFastForwardButton.hideRippleAnimation();
+                        mJumpNextButton.hideRippleAnimation();
+                    }
+                });
     }
 
     @Override
@@ -470,32 +514,34 @@ public class PlayControlsRowView extends MenuRowView {
         }
     }
 
-    /**
-     * Updates the view contents. It is called from the PlayControlsRow.
-     */
+    /** Updates the view contents. It is called from the PlayControlsRow. */
     public void update() {
-        updateAll();
+        updateAll(false);
     }
 
-    private void updateAll() {
+    private void updateAll(boolean forceUpdate) {
         if (mTimeShiftManager.isAvailable() && !mTvView.isScreenBlocked()) {
             setEnabled(true);
             initializeTimeline();
             mBackgroundView.setEnabled(true);
+            setTextIfNeeded(mBackgroundView, null);
         } else {
             setEnabled(false);
             mBackgroundView.setEnabled(false);
+            setTextIfNeeded(mBackgroundView, mUnavailableMessage);
         }
-        updateControls();
+        // force the controls be updated no matter it's visible or not.
+        updateControls(forceUpdate);
     }
 
-    private void updateControls() {
-        updateTime();
-        updateProgress();
-        updateRecTimeText();
-        updateButtons();
-        updateRecordButton();
-        updateButtonMargin();
+    private void updateControls(boolean forceUpdate) {
+        if (forceUpdate || getContentsView().isShown()) {
+            updateTime();
+            updateProgress();
+            updateButtons();
+            updateRecordButton();
+            updateButtonMargin();
+        }
     }
 
     private void updateTime() {
@@ -504,70 +550,48 @@ public class PlayControlsRowView extends MenuRowView {
             mTimeIndicator.setVisibility(View.VISIBLE);
         } else {
             mTimeText.setVisibility(View.INVISIBLE);
-            mTimeIndicator.setVisibility(View.INVISIBLE);
+            mTimeIndicator.setVisibility(View.GONE);
             return;
         }
         long currentPositionMs = mTimeShiftManager.getCurrentPositionMs();
-        ViewGroup.MarginLayoutParams params =
-                (ViewGroup.MarginLayoutParams) mTimeText.getLayoutParams();
         int currentTimePositionPixel =
                 convertDurationToPixel(currentPositionMs - mProgramStartTimeMs);
-        params.leftMargin = currentTimePositionPixel + mTimeTextLeftMargin;
-        mTimeText.setLayoutParams(params);
-        mTimeText.setText(getTimeString(currentPositionMs));
-        params = (ViewGroup.MarginLayoutParams) mTimeIndicator.getLayoutParams();
-        params.leftMargin = currentTimePositionPixel + mTimeIndicatorLeftMargin;
-        mTimeIndicator.setLayoutParams(params);
+        mTimeText.setTranslationX(currentTimePositionPixel + mTimeTextLeftMargin);
+        setTextIfNeeded(mTimeText, getTimeString(currentPositionMs));
+        mTimeIndicator.setTranslationX(currentTimePositionPixel + mTimeIndicatorLeftMargin);
     }
 
     private void updateProgress() {
         if (isEnabled()) {
-            mProgressWatched.setVisibility(View.VISIBLE);
-            mProgressBuffered.setVisibility(View.VISIBLE);
-            mProgressEmptyAfter.setVisibility(View.VISIBLE);
+            long progressStartTimeMs =
+                    Math.min(
+                            mProgramEndTimeMs,
+                            Math.max(
+                                    mProgramStartTimeMs, mTimeShiftManager.getRecordStartTimeMs()));
+            long currentPlayingTimeMs =
+                    Math.min(
+                            mProgramEndTimeMs,
+                            Math.max(
+                                    mProgramStartTimeMs, mTimeShiftManager.getCurrentPositionMs()));
+            long progressEndTimeMs =
+                    Math.min(
+                            mProgramEndTimeMs,
+                            Math.max(mProgramStartTimeMs, mTimeShiftManager.getRecordEndTimeMs()));
+            mProgress.setProgressRange(
+                    progressStartTimeMs - mProgramStartTimeMs,
+                    progressEndTimeMs - mProgramStartTimeMs);
+            mProgress.setProgress(currentPlayingTimeMs - mProgramStartTimeMs);
         } else {
-            mProgressWatched.setVisibility(View.INVISIBLE);
-            mProgressBuffered.setVisibility(View.INVISIBLE);
-            mProgressEmptyAfter.setVisibility(View.INVISIBLE);
-            if (mProgramStartTimeMs < mProgramEndTimeMs) {
-                layoutProgress(mProgressEmptyBefore, mProgramStartTimeMs, mProgramEndTimeMs);
-            } else {
-                // Not initialized yet.
-                layoutProgress(mProgressEmptyBefore, mTimelineWidth);
-            }
-            return;
+            mProgress.setProgressRange(0, 0);
         }
-
-        long progressStartTimeMs = Math.min(mProgramEndTimeMs,
-                    Math.max(mProgramStartTimeMs, mTimeShiftManager.getRecordStartTimeMs()));
-        long currentPlayingTimeMs = Math.min(mProgramEndTimeMs,
-                    Math.max(mProgramStartTimeMs, mTimeShiftManager.getCurrentPositionMs()));
-        long progressEndTimeMs = Math.min(mProgramEndTimeMs,
-                    Math.max(mProgramStartTimeMs, mTimeShiftManager.getRecordEndTimeMs()));
-
-        layoutProgress(mProgressEmptyBefore, mProgramStartTimeMs, progressStartTimeMs);
-        layoutProgress(mProgressWatched, progressStartTimeMs, currentPlayingTimeMs);
-        layoutProgress(mProgressBuffered, currentPlayingTimeMs, progressEndTimeMs);
-    }
-
-    private void layoutProgress(View progress, long progressStartTimeMs, long progressEndTimeMs) {
-        layoutProgress(progress, Math.max(0,
-                convertDurationToPixel(progressEndTimeMs - progressStartTimeMs)) + 1);
-    }
-
-    private void layoutProgress(View progress, int width) {
-        ViewGroup.MarginLayoutParams params =
-                (ViewGroup.MarginLayoutParams) progress.getLayoutParams();
-        params.width = width;
-        progress.setLayoutParams(params);
     }
 
     private void updateRecTimeText() {
         if (isEnabled()) {
             mProgramStartTimeText.setVisibility(View.VISIBLE);
-            mProgramStartTimeText.setText(getTimeString(mProgramStartTimeMs));
+            setTextIfNeeded(mProgramStartTimeText, getTimeString(mProgramStartTimeMs));
             mProgramEndTimeText.setVisibility(View.VISIBLE);
-            mProgramEndTimeText.setText(getTimeString(mProgramEndTimeMs));
+            setTextIfNeeded(mProgramEndTimeText, getTimeString(mProgramEndTimeMs));
         } else {
             mProgramStartTimeText.setVisibility(View.GONE);
             mProgramEndTimeText.setVisibility(View.GONE);
@@ -576,31 +600,40 @@ public class PlayControlsRowView extends MenuRowView {
 
     private void updateButtons() {
         if (isEnabled()) {
-            mControlBar.setVisibility(View.VISIBLE);
-            mUnavailableMessageText.setVisibility(View.GONE);
+            mPlayPauseButton.setVisibility(View.VISIBLE);
+            mJumpPreviousButton.setVisibility(View.VISIBLE);
+            mJumpNextButton.setVisibility(View.VISIBLE);
+            mRewindButton.setVisibility(View.VISIBLE);
+            mFastForwardButton.setVisibility(View.VISIBLE);
         } else {
-            mControlBar.setVisibility(View.INVISIBLE);
-            mUnavailableMessageText.setVisibility(View.VISIBLE);
+            mPlayPauseButton.setVisibility(View.GONE);
+            mJumpPreviousButton.setVisibility(View.GONE);
+            mJumpNextButton.setVisibility(View.GONE);
+            mRewindButton.setVisibility(View.GONE);
+            mFastForwardButton.setVisibility(View.GONE);
             return;
         }
 
         if (mTimeShiftManager.getPlayStatus() == TimeShiftManager.PLAY_STATUS_PAUSED) {
             mPlayPauseButton.setImageResId(R.drawable.lb_ic_play);
-            mPlayPauseButton.setEnabled(mTimeShiftManager.isActionEnabled(
-                    TimeShiftManager.TIME_SHIFT_ACTION_ID_PLAY));
+            mPlayPauseButton.setEnabled(
+                    mTimeShiftManager.isActionEnabled(TimeShiftManager.TIME_SHIFT_ACTION_ID_PLAY));
         } else {
             mPlayPauseButton.setImageResId(R.drawable.lb_ic_pause);
-            mPlayPauseButton.setEnabled(mTimeShiftManager.isActionEnabled(
-                    TimeShiftManager.TIME_SHIFT_ACTION_ID_PAUSE));
+            mPlayPauseButton.setEnabled(
+                    mTimeShiftManager.isActionEnabled(TimeShiftManager.TIME_SHIFT_ACTION_ID_PAUSE));
         }
-        mJumpPreviousButton.setEnabled(mTimeShiftManager.isActionEnabled(
-                TimeShiftManager.TIME_SHIFT_ACTION_ID_JUMP_TO_PREVIOUS));
-        mRewindButton.setEnabled(mTimeShiftManager.isActionEnabled(
-                TimeShiftManager.TIME_SHIFT_ACTION_ID_REWIND));
-        mFastForwardButton.setEnabled(mTimeShiftManager.isActionEnabled(
-                TimeShiftManager.TIME_SHIFT_ACTION_ID_FAST_FORWARD));
-        mJumpNextButton.setEnabled(mTimeShiftManager.isActionEnabled(
-                TimeShiftManager.TIME_SHIFT_ACTION_ID_JUMP_TO_NEXT));
+        mJumpPreviousButton.setEnabled(
+                mTimeShiftManager.isActionEnabled(
+                        TimeShiftManager.TIME_SHIFT_ACTION_ID_JUMP_TO_PREVIOUS));
+        mRewindButton.setEnabled(
+                mTimeShiftManager.isActionEnabled(TimeShiftManager.TIME_SHIFT_ACTION_ID_REWIND));
+        mFastForwardButton.setEnabled(
+                mTimeShiftManager.isActionEnabled(
+                        TimeShiftManager.TIME_SHIFT_ACTION_ID_FAST_FORWARD));
+        mJumpNextButton.setEnabled(
+                mTimeShiftManager.isActionEnabled(
+                        TimeShiftManager.TIME_SHIFT_ACTION_ID_JUMP_TO_NEXT));
         mJumpPreviousButton.setVisibility(VISIBLE);
         mJumpNextButton.setVisibility(VISIBLE);
         updateButtonMargin();
@@ -616,12 +649,21 @@ public class PlayControlsRowView extends MenuRowView {
         if (mTimeShiftManager.getDisplayedPlaySpeed() == TimeShiftManager.PLAY_SPEED_1X) {
             button.setLabel(null);
         } else {
-            button.setLabel(getResources().getString(R.string.play_controls_speed,
-                    mTimeShiftManager.getDisplayedPlaySpeed()));
+            button.setLabel(
+                    getResources()
+                            .getString(
+                                    R.string.play_controls_speed,
+                                    mTimeShiftManager.getDisplayedPlaySpeed()));
         }
     }
 
     private void updateRecordButton() {
+        if (isEnabled()) {
+            mRecordButton.setVisibility(VISIBLE);
+        } else {
+            mRecordButton.setVisibility(GONE);
+            return;
+        }
         if (!(mDvrManager != null
                 && mDvrManager.isChannelRecordable(mMainActivity.getCurrentChannel()))) {
             mRecordButton.setVisibility(View.GONE);
@@ -638,12 +680,13 @@ public class PlayControlsRowView extends MenuRowView {
     }
 
     private void updateButtonMargin() {
-        int numOfVisibleButtons = (mJumpPreviousButton.getVisibility() == View.VISIBLE ? 1 : 0)
-                + (mRewindButton.getVisibility() == View.VISIBLE ? 1 : 0)
-                + (mPlayPauseButton.getVisibility() == View.VISIBLE ? 1 : 0)
-                + (mFastForwardButton.getVisibility() == View.VISIBLE ? 1 : 0)
-                + (mJumpNextButton.getVisibility() == View.VISIBLE ? 1 : 0)
-                + (mRecordButton.getVisibility() == View.VISIBLE ? 1 : 0);
+        int numOfVisibleButtons =
+                (mJumpPreviousButton.getVisibility() == View.VISIBLE ? 1 : 0)
+                        + (mRewindButton.getVisibility() == View.VISIBLE ? 1 : 0)
+                        + (mPlayPauseButton.getVisibility() == View.VISIBLE ? 1 : 0)
+                        + (mFastForwardButton.getVisibility() == View.VISIBLE ? 1 : 0)
+                        + (mJumpNextButton.getVisibility() == View.VISIBLE ? 1 : 0)
+                        + (mRecordButton.getVisibility() == View.VISIBLE ? 1 : 0);
         boolean useCompactLayout = numOfVisibleButtons > NORMAL_WIDTH_MAX_BUTTON_COUNT;
         if (mUseCompactLayout == useCompactLayout) {
             return;
@@ -680,6 +723,12 @@ public class PlayControlsRowView extends MenuRowView {
         super.onDetachedFromWindow();
         if (mDvrDataManager != null) {
             mDvrDataManager.removeScheduledRecordingListener(mScheduledRecordingListener);
+        }
+    }
+
+    private void setTextIfNeeded(TextView textView, String text) {
+        if (!TextUtils.equals(textView.getText(), text)) {
+            textView.setText(text);
         }
     }
 }

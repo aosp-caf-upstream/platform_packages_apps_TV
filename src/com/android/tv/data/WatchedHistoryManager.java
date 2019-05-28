@@ -1,3 +1,18 @@
+/*
+ * Copyright (C) 2017 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.android.tv.data;
 
 import android.content.Context;
@@ -10,15 +25,13 @@ import android.os.Looper;
 import android.support.annotation.MainThread;
 import android.support.annotation.NonNull;
 import android.support.annotation.VisibleForTesting;
+import android.support.annotation.WorkerThread;
 import android.util.Log;
-
-import com.android.tv.common.SharedPreferencesUtils;
-
+import com.android.tv.common.util.SharedPreferencesUtils;
+import com.android.tv.data.api.Channel;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Scanner;
 import java.util.concurrent.TimeUnit;
@@ -26,17 +39,18 @@ import java.util.concurrent.TimeUnit;
 /**
  * A class to manage watched history.
  *
- * <p>When there is no access to watched table of TvProvider,
- * this class is used to build up watched history and to compute recent channels.
+ * <p>When there is no access to watched table of TvProvider, this class is used to build up watched
+ * history and to compute recent channels.
+ *
+ * <p>Note that this class is not thread safe. Please use this on one thread.
  */
 public class WatchedHistoryManager {
-    private final static String TAG = "WatchedHistoryManager";
-    private final boolean DEBUG = false;
+    private static final String TAG = "WatchedHistoryManager";
+    private static final boolean DEBUG = false;
 
     private static final int MAX_HISTORY_SIZE = 10000;
     private static final String PREF_KEY_LAST_INDEX = "last_index";
     private static final long MIN_DURATION_MS = TimeUnit.SECONDS.toMillis(10);
-    private static final long RECENT_CHANNEL_THRESHOLD_MS = TimeUnit.MINUTES.toMillis(5);
 
     private final List<WatchedRecord> mWatchedHistory = new ArrayList<>();
     private final List<WatchedRecord> mPendingRecords = new ArrayList<>();
@@ -48,8 +62,8 @@ public class WatchedHistoryManager {
             new OnSharedPreferenceChangeListener() {
                 @Override
                 @MainThread
-                public void onSharedPreferenceChanged(SharedPreferences sharedPreferences,
-                        String key) {
+                public void onSharedPreferenceChanged(
+                        SharedPreferences sharedPreferences, String key) {
                     if (key.equals(PREF_KEY_LAST_INDEX)) {
                         final long lastIndex = mSharedPreferences.getLong(PREF_KEY_LAST_INDEX, -1);
                         if (lastIndex <= mLastIndex) {
@@ -58,23 +72,26 @@ public class WatchedHistoryManager {
                         // onSharedPreferenceChanged is always called in a main thread.
                         // onNewRecordAdded will be called in the same thread as the thread
                         // which created this instance.
-                        mHandler.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                for (long i = mLastIndex + 1; i <= lastIndex; ++i) {
-                                    WatchedRecord record = decode(
-                                            mSharedPreferences.getString(getSharedPreferencesKey(i),
-                                                    null));
-                                    if (record != null) {
-                                        mWatchedHistory.add(record);
-                                        if (mListener != null) {
-                                            mListener.onNewRecordAdded(record);
+                        mHandler.post(
+                                new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        for (long i = mLastIndex + 1; i <= lastIndex; ++i) {
+                                            WatchedRecord record =
+                                                    decode(
+                                                            mSharedPreferences.getString(
+                                                                    getSharedPreferencesKey(i),
+                                                                    null));
+                                            if (record != null) {
+                                                mWatchedHistory.add(record);
+                                                if (mListener != null) {
+                                                    mListener.onNewRecordAdded(record);
+                                                }
+                                            }
                                         }
+                                        mLastIndex = lastIndex;
                                     }
-                                }
-                                mLastIndex = lastIndex;
-                            }
-                        });
+                                });
                     }
                 }
             };
@@ -92,71 +109,79 @@ public class WatchedHistoryManager {
     WatchedHistoryManager(Context context, int maxHistorySize) {
         mContext = context.getApplicationContext();
         mMaxHistorySize = maxHistorySize;
-        if (Looper.myLooper() == null) {
-            mHandler = new Handler(Looper.getMainLooper());
-        } else {
-            mHandler = new Handler();
-        }
+        mHandler = new Handler();
     }
 
-    /**
-     * Starts the manager. It loads history data from {@link SharedPreferences}.
-     */
+    /** Starts the manager. It loads history data from {@link SharedPreferences}. */
     public void start() {
         if (mStarted) {
             return;
         }
         mStarted = true;
-        new AsyncTask<Void, Void, Void>() {
-            @Override
-            protected Void doInBackground(Void... params) {
-                mSharedPreferences = mContext.getSharedPreferences(
-                        SharedPreferencesUtils.SHARED_PREF_WATCHED_HISTORY, Context.MODE_PRIVATE);
-                mLastIndex = mSharedPreferences.getLong(PREF_KEY_LAST_INDEX, -1);
-                if (mLastIndex >= 0 && mLastIndex < mMaxHistorySize) {
-                    for (int i = 0; i <= mLastIndex; ++i) {
-                        WatchedRecord record =
-                                decode(mSharedPreferences.getString(getSharedPreferencesKey(i),
-                                        null));
-                        if (record != null) {
-                            mWatchedHistory.add(record);
-                        }
-                    }
-                } else if (mLastIndex >= mMaxHistorySize) {
-                    for (long i = mLastIndex - mMaxHistorySize + 1; i <= mLastIndex; ++i) {
-                        WatchedRecord record = decode(mSharedPreferences.getString(
-                                getSharedPreferencesKey(i), null));
-                        if (record != null) {
-                            mWatchedHistory.add(record);
-                        }
-                    }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            new AsyncTask<Void, Void, Void>() {
+                @Override
+                protected Void doInBackground(Void... params) {
+                    loadWatchedHistory();
+                    return null;
                 }
-                return null;
-            }
 
-            @Override
-            protected void onPostExecute(Void params) {
-                mLoaded = true;
-                if (DEBUG) {
-                    Log.d(TAG, "Loaded: size=" + mWatchedHistory.size() + " index=" + mLastIndex);
+                @Override
+                protected void onPostExecute(Void params) {
+                    onLoadFinished();
                 }
-                if (!mPendingRecords.isEmpty()) {
-                    Editor editor = mSharedPreferences.edit();
-                    for (WatchedRecord record : mPendingRecords) {
-                        mWatchedHistory.add(record);
-                        ++mLastIndex;
-                        editor.putString(getSharedPreferencesKey(mLastIndex), encode(record));
-                    }
-                    editor.putLong(PREF_KEY_LAST_INDEX, mLastIndex).apply();
-                    mPendingRecords.clear();
+            }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+        } else {
+            loadWatchedHistory();
+            onLoadFinished();
+        }
+    }
+
+    @WorkerThread
+    private void loadWatchedHistory() {
+        mSharedPreferences =
+                mContext.getSharedPreferences(
+                        SharedPreferencesUtils.SHARED_PREF_WATCHED_HISTORY, Context.MODE_PRIVATE);
+        mLastIndex = mSharedPreferences.getLong(PREF_KEY_LAST_INDEX, -1);
+        if (mLastIndex >= 0 && mLastIndex < mMaxHistorySize) {
+            for (int i = 0; i <= mLastIndex; ++i) {
+                WatchedRecord record =
+                        decode(mSharedPreferences.getString(getSharedPreferencesKey(i), null));
+                if (record != null) {
+                    mWatchedHistory.add(record);
                 }
-                if (mListener != null) {
-                    mListener.onLoadFinished();
-                }
-                mSharedPreferences.registerOnSharedPreferenceChangeListener(
-                        mOnSharedPreferenceChangeListener);
             }
-        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+        } else if (mLastIndex >= mMaxHistorySize) {
+            for (long i = mLastIndex - mMaxHistorySize + 1; i <= mLastIndex; ++i) {
+                WatchedRecord record =
+                        decode(mSharedPreferences.getString(getSharedPreferencesKey(i), null));
+                if (record != null) {
+                    mWatchedHistory.add(record);
+                }
+            }
+        }
+    }
+
+    private void onLoadFinished() {
+        mLoaded = true;
+        if (DEBUG) {
+            Log.d(TAG, "Loaded: size=" + mWatchedHistory.size() + " index=" + mLastIndex);
+        }
+        if (!mPendingRecords.isEmpty()) {
+            Editor editor = mSharedPreferences.edit();
+            for (WatchedRecord record : mPendingRecords) {
+                mWatchedHistory.add(record);
+                ++mLastIndex;
+                editor.putString(getSharedPreferencesKey(mLastIndex), encode(record));
+            }
+            editor.putLong(PREF_KEY_LAST_INDEX, mLastIndex).apply();
+            mPendingRecords.clear();
+        }
+        if (mListener != null) {
+            mListener.onLoadFinished();
+        }
+        mSharedPreferences.registerOnSharedPreferenceChangeListener(
+                mOnSharedPreferenceChangeListener);
     }
 
     @VisibleForTesting
@@ -164,9 +189,7 @@ public class WatchedHistoryManager {
         return mLoaded;
     }
 
-    /**
-     * Logs the record of the watched channel.
-     */
+    /** Logs the record of the watched channel. */
     public void logChannelViewStop(Channel channel, long endTime, long duration) {
         if (duration < MIN_DURATION_MS) {
             return;
@@ -176,7 +199,8 @@ public class WatchedHistoryManager {
             if (DEBUG) Log.d(TAG, "Log a watched record. " + record);
             mWatchedHistory.add(record);
             ++mLastIndex;
-            mSharedPreferences.edit()
+            mSharedPreferences
+                    .edit()
                     .putString(getSharedPreferencesKey(mLastIndex), encode(record))
                     .putLong(PREF_KEY_LAST_INDEX, mLastIndex)
                     .apply();
@@ -188,66 +212,18 @@ public class WatchedHistoryManager {
         }
     }
 
-    /**
-     * Sets {@link Listener}.
-     */
+    /** Sets {@link Listener}. */
     public void setListener(Listener listener) {
         mListener = listener;
     }
 
     /**
-     * Returns watched history in the ascending order of time. In other words, the first element
-     * is the oldest and the last element is the latest record.
+     * Returns watched history in the ascending order of time. In other words, the first element is
+     * the oldest and the last element is the latest record.
      */
     @NonNull
     public List<WatchedRecord> getWatchedHistory() {
         return Collections.unmodifiableList(mWatchedHistory);
-    }
-
-    /**
-     * Returns the list of recently watched channels.
-     */
-    public List<Channel> buildRecentChannel(ChannelDataManager channelDataManager, int maxCount) {
-        List<Channel> list = new ArrayList<>();
-        Map<Long, Long> durationMap = new HashMap<>();
-        for (int i = mWatchedHistory.size() - 1; i >= 0; --i) {
-            WatchedRecord record = mWatchedHistory.get(i);
-            long channelId = record.channelId;
-            Channel channel = channelDataManager.getChannel(channelId);
-            if (channel == null || !channel.isBrowsable()) {
-                continue;
-            }
-            Long duration = durationMap.get(channelId);
-            if (duration == null) {
-                duration = 0L;
-            }
-            if (duration >= RECENT_CHANNEL_THRESHOLD_MS) {
-                continue;
-            }
-            if (list.isEmpty()) {
-                // We put the first recent channel regardless of RECENT_CHANNEL_THREASHOLD.
-                // It has the similar functionality as the previous channel in a usual remote
-                // controller.
-                list.add(channel);
-                durationMap.put(channelId, RECENT_CHANNEL_THRESHOLD_MS);
-            } else {
-                duration += record.duration;
-                durationMap.put(channelId, duration);
-                if (duration >= RECENT_CHANNEL_THRESHOLD_MS) {
-                    list.add(channel);
-                }
-            }
-            if (list.size() >= maxCount) {
-                break;
-            }
-        }
-        if (DEBUG) {
-            Log.d(TAG, "Build recent channel");
-            for (Channel channel : list) {
-                Log.d(TAG, "recent channel: " + channel);
-            }
-        }
-        return list;
     }
 
     @VisibleForTesting
@@ -279,8 +255,12 @@ public class WatchedHistoryManager {
 
         @Override
         public String toString() {
-            return "WatchedRecord: id=" + channelId + ",watchedStartTime=" + watchedStartTime
-                    + ",duration=" + duration;
+            return "WatchedRecord: id="
+                    + channelId
+                    + ",watchedStartTime="
+                    + watchedStartTime
+                    + ",duration="
+                    + duration;
         }
 
         @Override
@@ -318,10 +298,9 @@ public class WatchedHistoryManager {
     }
 
     public interface Listener {
-        /**
-         * Called when history is loaded.
-         */
+        /** Called when history is loaded. */
         void onLoadFinished();
+
         void onNewRecordAdded(WatchedRecord watchedRecord);
     }
 }

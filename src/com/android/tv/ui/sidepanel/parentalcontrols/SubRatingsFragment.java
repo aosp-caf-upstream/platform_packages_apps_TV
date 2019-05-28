@@ -17,10 +17,10 @@
 package com.android.tv.ui.sidepanel.parentalcontrols;
 
 import android.graphics.drawable.Drawable;
+import android.os.Bundle;
 import android.view.View;
 import android.widget.CompoundButton;
 import android.widget.ImageView;
-
 import com.android.tv.R;
 import com.android.tv.parental.ContentRatingSystem;
 import com.android.tv.parental.ContentRatingSystem.Rating;
@@ -29,20 +29,43 @@ import com.android.tv.ui.sidepanel.CheckBoxItem;
 import com.android.tv.ui.sidepanel.DividerItem;
 import com.android.tv.ui.sidepanel.Item;
 import com.android.tv.ui.sidepanel.SideFragment;
-
 import java.util.ArrayList;
 import java.util.List;
 
 public class SubRatingsFragment extends SideFragment {
     private static final String TRACKER_LABEL = "Sub ratings";
 
-    private final ContentRatingSystem mContentRatingSystem;
-    private final Rating mRating;
+    private static final String ARGS_CONTENT_RATING_SYSTEM_ID = "args_content_rating_system_id";
+    private static final String ARGS_RATING_NAME = "args_rating_name";
+
+    private ContentRatingSystem mContentRatingSystem;
+    private Rating mRating;
     private final List<SubRatingItem> mSubRatingItems = new ArrayList<>();
 
-    public SubRatingsFragment(ContentRatingSystem contentRatingSystem, Rating rating) {
-        mContentRatingSystem = contentRatingSystem;
-        mRating = rating;
+    public static SubRatingsFragment create(
+            ContentRatingSystem contentRatingSystem, String ratingName) {
+        SubRatingsFragment fragment = new SubRatingsFragment();
+        Bundle args = new Bundle();
+        args.putString(ARGS_CONTENT_RATING_SYSTEM_ID, contentRatingSystem.getId());
+        args.putString(ARGS_RATING_NAME, ratingName);
+        fragment.setArguments(args);
+        return fragment;
+    }
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        mContentRatingSystem =
+                getMainActivity()
+                        .getContentRatingsManager()
+                        .getContentRatingSystem(
+                                getArguments().getString(ARGS_CONTENT_RATING_SYSTEM_ID));
+        if (mContentRatingSystem != null) {
+            mRating = mContentRatingSystem.getRating(getArguments().getString(ARGS_RATING_NAME));
+        }
+        if (mRating == null) {
+            closeFragment();
+        }
     }
 
     @Override
@@ -172,22 +195,26 @@ public class SubRatingsFragment extends SideFragment {
     }
 
     private boolean isRatingEnabled() {
-        return getMainActivity().getParentalControlSettings()
+        return getMainActivity()
+                .getParentalControlSettings()
                 .isRatingBlocked(mContentRatingSystem, mRating);
     }
 
     private boolean isSubRatingEnabled(SubRating subRating) {
-        return getMainActivity().getParentalControlSettings()
+        return getMainActivity()
+                .getParentalControlSettings()
                 .isSubRatingEnabled(mContentRatingSystem, mRating, subRating);
     }
 
     private void setRatingEnabled(boolean enabled) {
-        getMainActivity().getParentalControlSettings()
+        getMainActivity()
+                .getParentalControlSettings()
                 .setRatingBlocked(mContentRatingSystem, mRating, enabled);
     }
 
     private void setSubRatingEnabled(SubRating subRating, boolean enabled) {
-        getMainActivity().getParentalControlSettings()
+        getMainActivity()
+                .getParentalControlSettings()
                 .setSubRatingBlocked(mContentRatingSystem, mRating, subRating, enabled);
     }
 }

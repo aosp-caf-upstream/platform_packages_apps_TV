@@ -17,9 +17,7 @@
 package com.android.tv.menu;
 
 import android.content.Context;
-
-import com.android.tv.customization.CustomAction;
-
+import com.android.tv.common.customization.CustomAction;
 import java.util.Collections;
 import java.util.List;
 
@@ -34,12 +32,10 @@ public class PartnerOptionsRowAdapter extends CustomizableOptionsRowAdapter {
     }
 
     @Override
-    protected void executeBaseAction(int option) {
-    }
+    protected void executeBaseAction(int option) {}
 
     @Override
-    protected boolean updateActions() {
+    protected void updateActions() {
         // TODO: Support adding description for custom actions.
-        return false;
     }
 }

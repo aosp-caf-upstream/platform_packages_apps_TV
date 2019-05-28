@@ -15,58 +15,64 @@
  */
 package com.android.tv.menu;
 
+import static android.support.test.InstrumentationRegistry.getTargetContext;
+import static com.google.common.truth.Truth.assertWithMessage;
+
 import android.support.test.filters.SmallTest;
-import android.test.AndroidTestCase;
-
+import android.support.test.runner.AndroidJUnit4;
 import com.android.tv.menu.Menu.OnMenuVisibilityChangeListener;
-
+import org.junit.Before;
+import org.junit.Ignore;
+import org.junit.Test;
+import org.junit.runner.RunWith;
 import org.mockito.Matchers;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
-/**
- * Tests for {@link Menu}.
- */
+/** Tests for {@link Menu}. */
 @SmallTest
-public class MenuTest extends AndroidTestCase {
+@RunWith(AndroidJUnit4.class)
+public class MenuTest {
     private Menu mMenu;
     private IMenuView mMenuView;
     private OnMenuVisibilityChangeListener mVisibilityChangeListener;
 
-    @Override
-    protected void setUp() throws Exception {
-        super.setUp();
+    @Before
+    public void setUp() {
         mMenuView = Mockito.mock(IMenuView.class);
         MenuRowFactory factory = Mockito.mock(MenuRowFactory.class);
         Mockito.when(factory.createMenuRow(Mockito.any(Menu.class), Mockito.any(Class.class)))
                 .thenReturn(null);
         mVisibilityChangeListener = Mockito.mock(OnMenuVisibilityChangeListener.class);
-        mMenu = new Menu(getContext(), mMenuView, factory, mVisibilityChangeListener);
+        mMenu = new Menu(getTargetContext(), mMenuView, factory, mVisibilityChangeListener);
         mMenu.disableAnimationForTest();
     }
 
+    @Ignore("b/73727914")
+    @Test
     public void testScheduleHide() {
         mMenu.show(Menu.REASON_NONE);
         setMenuVisible(true);
-        assertTrue("Hide is not scheduled", mMenu.isHideScheduled());
+    assertWithMessage("Hide is not scheduled").that(mMenu.isHideScheduled()).isTrue();
         mMenu.hide(false);
         setMenuVisible(false);
-        assertFalse("Hide is scheduled", mMenu.isHideScheduled());
+    assertWithMessage("Hide is scheduled").that(mMenu.isHideScheduled()).isFalse();
 
         mMenu.setKeepVisible(true);
         mMenu.show(Menu.REASON_NONE);
         setMenuVisible(true);
-        assertFalse("Hide is scheduled", mMenu.isHideScheduled());
+    assertWithMessage("Hide is scheduled").that(mMenu.isHideScheduled()).isFalse();
         mMenu.setKeepVisible(false);
-        assertTrue("Hide is not scheduled", mMenu.isHideScheduled());
+    assertWithMessage("Hide is not scheduled").that(mMenu.isHideScheduled()).isTrue();
         mMenu.setKeepVisible(true);
-        assertFalse("Hide is scheduled", mMenu.isHideScheduled());
+    assertWithMessage("Hide is scheduled").that(mMenu.isHideScheduled()).isFalse();
         mMenu.hide(false);
         setMenuVisible(false);
-        assertFalse("Hide is scheduled", mMenu.isHideScheduled());
+    assertWithMessage("Hide is scheduled").that(mMenu.isHideScheduled()).isFalse();
     }
 
+    @Test
     public void testShowHide_ReasonNone() {
         // Show with REASON_NONE
         mMenu.show(Menu.REASON_NONE);
@@ -77,8 +83,11 @@ public class MenuTest extends AndroidTestCase {
         Mockito.verify(mVisibilityChangeListener, Mockito.never())
                 .onMenuVisibilityChange(Matchers.eq(false));
         // IMenuView.show should be called with the same parameter.
-        Mockito.verify(mMenuView).onShow(Matchers.eq(Menu.REASON_NONE),
-                Matchers.isNull(String.class), Matchers.isNull(Runnable.class));
+        Mockito.verify(mMenuView)
+                .onShow(
+                        Matchers.eq(Menu.REASON_NONE),
+                        Matchers.isNull(String.class),
+                        Matchers.isNull(Runnable.class));
         mMenu.hide(true);
         setMenuVisible(false);
         // Listener should be called with "false" argument.
@@ -87,6 +96,7 @@ public class MenuTest extends AndroidTestCase {
         Mockito.verify(mMenuView).onHide();
     }
 
+    @Test
     public void testShowHide_ReasonGuide() {
         // Show with REASON_GUIDE
         mMenu.show(Menu.REASON_GUIDE);
@@ -97,8 +107,11 @@ public class MenuTest extends AndroidTestCase {
         Mockito.verify(mVisibilityChangeListener, Mockito.never())
                 .onMenuVisibilityChange(Matchers.eq(false));
         // IMenuView.show should be called with the same parameter.
-        Mockito.verify(mMenuView).onShow(Matchers.eq(Menu.REASON_GUIDE),
-                Matchers.eq(ChannelsRow.ID), Matchers.isNull(Runnable.class));
+        Mockito.verify(mMenuView)
+                .onShow(
+                        Matchers.eq(Menu.REASON_GUIDE),
+                        Matchers.eq(ChannelsRow.ID),
+                        Matchers.isNull(Runnable.class));
         mMenu.hide(false);
         setMenuVisible(false);
         // Listener should be called with "false" argument.
@@ -107,6 +120,7 @@ public class MenuTest extends AndroidTestCase {
         Mockito.verify(mMenuView).onHide();
     }
 
+    @Test
     public void testShowHide_ReasonPlayControlsFastForward() {
         // Show with REASON_PLAY_CONTROLS_FAST_FORWARD
         mMenu.show(Menu.REASON_PLAY_CONTROLS_FAST_FORWARD);
@@ -117,8 +131,11 @@ public class MenuTest extends AndroidTestCase {
         Mockito.verify(mVisibilityChangeListener, Mockito.never())
                 .onMenuVisibilityChange(Matchers.eq(false));
         // IMenuView.show should be called with the same parameter.
-        Mockito.verify(mMenuView).onShow(Matchers.eq(Menu.REASON_PLAY_CONTROLS_FAST_FORWARD),
-                Matchers.eq(PlayControlsRow.ID), Matchers.isNull(Runnable.class));
+        Mockito.verify(mMenuView)
+                .onShow(
+                        Matchers.eq(Menu.REASON_PLAY_CONTROLS_FAST_FORWARD),
+                        Matchers.eq(PlayControlsRow.ID),
+                        Matchers.isNull(Runnable.class));
         mMenu.hide(false);
         setMenuVisible(false);
         // Listener should be called with "false" argument.
@@ -128,11 +145,13 @@ public class MenuTest extends AndroidTestCase {
     }
 
     private void setMenuVisible(final boolean visible) {
-        Mockito.when(mMenuView.isVisible()).thenAnswer(new Answer<Boolean>() {
-            @Override
-            public Boolean answer(InvocationOnMock invocation) throws Throwable {
-                return visible;
-            }
-        });
+        Mockito.when(mMenuView.isVisible())
+                .thenAnswer(
+                        new Answer<Boolean>() {
+                            @Override
+                            public Boolean answer(InvocationOnMock invocation) throws Throwable {
+                                return visible;
+                            }
+                        });
     }
 }

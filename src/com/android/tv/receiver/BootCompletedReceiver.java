@@ -21,13 +21,15 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.util.Log;
-
-import com.android.tv.Features;
+import com.android.tv.Starter;
 import com.android.tv.TvActivity;
-import com.android.tv.TvApplication;
-import com.android.tv.common.feature.CommonFeatures;
-import com.android.tv.dvr.DvrRecordingService;
+import com.android.tv.TvFeatures;
+import com.android.tv.TvSingletons;
+import com.android.tv.dvr.recorder.DvrRecordingService;
+import com.android.tv.dvr.recorder.RecordingScheduler;
+import com.android.tv.recommendation.ChannelPreviewUpdater;
 import com.android.tv.recommendation.NotificationService;
 import com.android.tv.util.OnboardingUtils;
 import com.android.tv.util.SetupUtils;
@@ -36,11 +38,12 @@ import com.android.tv.util.SetupUtils;
  * Boot completed receiver for TV app.
  *
  * <p>It's used to
+ *
  * <ul>
- *     <li>start the {@link NotificationService} for recommendation</li>
- *     <li>grant permission to the TIS's </li>
- *     <li>enable {@link TvActivity} if necessary</li>
- *     <li>start the {@link DvrRecordingService} </li>
+ *   <li>start the {@link NotificationService} for recommendation
+ *   <li>grant permission to the TIS's
+ *   <li>enable {@link TvActivity} if necessary
+ *   <li>start the {@link DvrRecordingService}
  * </ul>
  */
 public class BootCompletedReceiver extends BroadcastReceiver {
@@ -49,17 +52,25 @@ public class BootCompletedReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
+        if (!TvSingletons.getSingletons(context).getTvInputManagerHelper().hasTvInputManager()) {
+            Log.wtf(TAG, "Stopping because device does not have a TvInputManager");
+            return;
+        }
         if (DEBUG) Log.d(TAG, "boot completed " + intent);
-        TvApplication.setCurrentRunningProcess(context, true);
-        // Start {@link NotificationService}.
-        Intent notificationIntent = new Intent(context, NotificationService.class);
-        notificationIntent.setAction(NotificationService.ACTION_SHOW_RECOMMENDATION);
-        context.startService(notificationIntent);
+        Starter.start(context);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ChannelPreviewUpdater.getInstance(context).updatePreviewDataForChannelsImmediately();
+        } else {
+            Intent notificationIntent = new Intent(context, NotificationService.class);
+            notificationIntent.setAction(NotificationService.ACTION_SHOW_RECOMMENDATION);
+            context.startService(notificationIntent);
+        }
 
         // Grant permission to already set up packages after the system has finished booting.
         SetupUtils.grantEpgPermissionToSetUpPackages(context);
 
-        if (Features.UNHIDE.isEnabled(context)) {
+        if (TvFeatures.UNHIDE.isEnabled(context)) {
             if (OnboardingUtils.isFirstBoot(context)) {
                 // Enable the application if this is the first "unhide" feature is enabled just in
                 // case when the app has been disabled before.
@@ -67,15 +78,16 @@ public class BootCompletedReceiver extends BroadcastReceiver {
                 ComponentName name = new ComponentName(context, TvActivity.class);
                 if (pm.getComponentEnabledSetting(name)
                         != PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
-                    pm.setComponentEnabledSetting(name,
-                            PackageManager.COMPONENT_ENABLED_STATE_ENABLED, 0);
+                    pm.setComponentEnabledSetting(
+                            name, PackageManager.COMPONENT_ENABLED_STATE_ENABLED, 0);
                 }
                 OnboardingUtils.setFirstBootCompleted(context);
             }
         }
 
-        if (CommonFeatures.DVR.isEnabled(context)) {
-            DvrRecordingService.startService(context);
+        RecordingScheduler scheduler = TvSingletons.getSingletons(context).getRecordingScheduler();
+        if (scheduler != null) {
+            scheduler.updateAndStartServiceIfNeeded();
         }
     }
 }

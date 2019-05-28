@@ -28,6 +28,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.content.res.Resources;
+import android.media.tv.TvContentRating;
 import android.os.Bundle;
 import android.os.Handler;
 import android.preference.PreferenceManager;
@@ -43,64 +44,54 @@ import android.view.ViewGroup.LayoutParams;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import com.android.tv.R;
+import com.android.tv.TvSingletons;
+import com.android.tv.common.SoftPreconditions;
 import com.android.tv.util.TvSettings;
 
 public class PinDialogFragment extends SafeDismissDialogFragment {
     private static final String TAG = "PinDialogFragment";
-    private static final boolean DBG = true;
+    private static final boolean DEBUG = false;
 
-    /**
-     * PIN code dialog for unlock channel
-     */
+    /** PIN code dialog for unlock channel */
     public static final int PIN_DIALOG_TYPE_UNLOCK_CHANNEL = 0;
 
     /**
-     * PIN code dialog for unlock content.
-     * Only difference between {@code PIN_DIALOG_TYPE_UNLOCK_CHANNEL} is it's title.
+     * PIN code dialog for unlock content. Only difference between {@code
+     * PIN_DIALOG_TYPE_UNLOCK_CHANNEL} is it's title.
      */
     public static final int PIN_DIALOG_TYPE_UNLOCK_PROGRAM = 1;
 
-    /**
-     * PIN code dialog for change parental control settings
-     */
+    /** PIN code dialog for change parental control settings */
     public static final int PIN_DIALOG_TYPE_ENTER_PIN = 2;
 
-    /**
-     * PIN code dialog for set new PIN
-     */
+    /** PIN code dialog for set new PIN */
     public static final int PIN_DIALOG_TYPE_NEW_PIN = 3;
 
-    // PIN code dialog for checking old PIN. This is internal only.
+    // PIN code dialog for checking old PIN. Only used in this class.
     private static final int PIN_DIALOG_TYPE_OLD_PIN = 4;
 
-    /**
-     * PIN code dialog for unlocking DVR playback
-     */
+    /** PIN code dialog for unlocking DVR playback */
     public static final int PIN_DIALOG_TYPE_UNLOCK_DVR = 5;
-
-    private static final int PIN_DIALOG_RESULT_SUCCESS = 0;
-    private static final int PIN_DIALOG_RESULT_FAIL = 1;
 
     private static final int MAX_WRONG_PIN_COUNT = 5;
     private static final int DISABLE_PIN_DURATION_MILLIS = 60 * 1000; // 1 minute
 
     private static final String INITIAL_TEXT = "—";
     private static final String TRACKER_LABEL = "Pin dialog";
-
-    public interface ResultListener {
-        void done(boolean success);
-    }
+    private static final String ARGS_TYPE = "args_type";
+    private static final String ARGS_RATING = "args_rating";
 
     public static final String DIALOG_TAG = PinDialogFragment.class.getName();
 
     private static final int NUMBER_PICKERS_RES_ID[] = {
-            R.id.first, R.id.second, R.id.third, R.id.fourth };
+        R.id.first, R.id.second, R.id.third, R.id.fourth
+    };
 
     private int mType;
-    private ResultListener mListener;
-    private int mRetCode;
+    private int mRequestType;
+    private boolean mPinChecked;
+    private boolean mDismissSilently;
 
     private TextView mWrongPinView;
     private View mEnterPinView;
@@ -114,29 +105,35 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
     private long mDisablePinUntil;
     private final Handler mHandler = new Handler();
 
-    public PinDialogFragment(int type, ResultListener listener) {
-        this(type, listener, null);
+    public static PinDialogFragment create(int type) {
+        return create(type, null);
     }
 
-    public PinDialogFragment(int type, ResultListener listener, String rating) {
-        mType = type;
-        mListener = listener;
-        mRetCode = PIN_DIALOG_RESULT_FAIL;
-        mRatingString = rating;
+    public static PinDialogFragment create(int type, String rating) {
+        PinDialogFragment fragment = new PinDialogFragment();
+        Bundle args = new Bundle();
+        args.putInt(ARGS_TYPE, type);
+        args.putString(ARGS_RATING, rating);
+        fragment.setArguments(args);
+        return fragment;
     }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        mRequestType = getArguments().getInt(ARGS_TYPE, PIN_DIALOG_TYPE_ENTER_PIN);
+        mType = mRequestType;
+        mRatingString = getArguments().getString(ARGS_RATING);
         setStyle(STYLE_NO_TITLE, 0);
         mSharedPreferences = PreferenceManager.getDefaultSharedPreferences(getActivity());
         mDisablePinUntil = TvSettings.getDisablePinUntil(getActivity());
         if (ActivityManager.isUserAMonkey()) {
             // Skip PIN dialog half the time for monkeys
             if (Math.random() < 0.5) {
-                exit(PIN_DIALOG_RESULT_SUCCESS);
+                exit(true);
             }
         }
+        mPinChecked = false;
     }
 
     @Override
@@ -159,15 +156,16 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
         // So apply view size to window after the DialogFragment.onStart() where dialog is shown.
         Dialog dlg = getDialog();
         if (dlg != null) {
-            dlg.getWindow().setLayout(
-                    getResources().getDimensionPixelSize(R.dimen.pin_dialog_width),
-                    LayoutParams.WRAP_CONTENT);
+            dlg.getWindow()
+                    .setLayout(
+                            getResources().getDimensionPixelSize(R.dimen.pin_dialog_width),
+                            LayoutParams.WRAP_CONTENT);
         }
     }
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container,
-            Bundle savedInstanceState) {
+    public View onCreateView(
+            LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         final View v = inflater.inflate(R.layout.pin_dialog, container, false);
 
         mWrongPinView = (TextView) v.findViewById(R.id.wrong_pin);
@@ -186,7 +184,19 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
                 mTitleView.setText(R.string.pin_enter_unlock_program);
                 break;
             case PIN_DIALOG_TYPE_UNLOCK_DVR:
-                mTitleView.setText(getString(R.string.pin_enter_unlock_dvr, mRatingString));
+                TvContentRating tvContentRating =
+                        TvContentRating.unflattenFromString(mRatingString);
+                if (TvContentRating.UNRATED.equals(tvContentRating)) {
+                    mTitleView.setText(getString(R.string.pin_enter_unlock_dvr_unrated));
+                } else {
+                    mTitleView.setText(
+                            getString(
+                                    R.string.pin_enter_unlock_dvr,
+                                    TvSingletons.getSingletons(getContext())
+                                            .getTvInputManagerHelper()
+                                            .getContentRatingsManager()
+                                            .getDisplayNameForRating(tvContentRating)));
+                }
                 break;
             case PIN_DIALOG_TYPE_ENTER_PIN:
                 mTitleView.setText(R.string.pin_enter_pin);
@@ -217,16 +227,13 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
         return v;
     }
 
-    public void setResultListener(ResultListener listener) {
-        mListener = listener;
-    }
-
-    private final Runnable mUpdateEnterPinRunnable = new Runnable() {
-        @Override
-        public void run() {
-            updateWrongPin();
-        }
-    };
+    private final Runnable mUpdateEnterPinRunnable =
+            new Runnable() {
+                @Override
+                public void run() {
+                    updateWrongPin();
+                }
+            };
 
     private void updateWrongPin() {
         if (getActivity() == null) {
@@ -244,24 +251,37 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
         } else {
             mEnterPinView.setVisibility(View.INVISIBLE);
             mWrongPinView.setVisibility(View.VISIBLE);
-            mWrongPinView.setText(getResources().getQuantityString(R.plurals.pin_enter_countdown,
-                    remainingSeconds, remainingSeconds));
+            mWrongPinView.setText(
+                    getResources()
+                            .getQuantityString(
+                                    R.plurals.pin_enter_countdown,
+                                    remainingSeconds,
+                                    remainingSeconds));
             mHandler.postDelayed(mUpdateEnterPinRunnable, 1000);
         }
     }
 
-    private void exit(int retCode) {
-        mRetCode = retCode;
+    private void exit(boolean pinChecked) {
+        mPinChecked = pinChecked;
+        dismiss();
+    }
+
+    /** Dismisses the pin dialog without calling activity listener. */
+    public void dismissSilently() {
+        mDismissSilently = true;
         dismiss();
     }
 
     @Override
     public void onDismiss(DialogInterface dialog) {
         super.onDismiss(dialog);
-        if (DBG) Log.d(TAG, "onDismiss: mRetCode=" + mRetCode);
-        if (mListener != null) {
-            mListener.done(mRetCode == PIN_DIALOG_RESULT_SUCCESS);
+        if (DEBUG) Log.d(TAG, "onDismiss: mPinChecked=" + mPinChecked);
+        SoftPreconditions.checkState(getActivity() instanceof OnPinCheckedListener);
+        if (!mDismissSilently && getActivity() instanceof OnPinCheckedListener) {
+            ((OnPinCheckedListener) getActivity())
+                    .onPinChecked(mPinChecked, mRequestType, mRatingString);
         }
+        mDismissSilently = false;
     }
 
     private void handleWrongPin() {
@@ -279,15 +299,14 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
     }
 
     private void done(String pin) {
-        if (DBG) Log.d(TAG, "done: mType=" + mType + " pin=" + pin + " stored=" + getPin());
+        if (DEBUG) Log.d(TAG, "done: mType=" + mType + " pin=" + pin + " stored=" + getPin());
         switch (mType) {
             case PIN_DIALOG_TYPE_UNLOCK_CHANNEL:
             case PIN_DIALOG_TYPE_UNLOCK_PROGRAM:
             case PIN_DIALOG_TYPE_UNLOCK_DVR:
             case PIN_DIALOG_TYPE_ENTER_PIN:
-                // TODO: Implement limited number of retrials and timeout logic.
                 if (TextUtils.isEmpty(getPin()) || pin.equals(getPin())) {
-                    exit(PIN_DIALOG_RESULT_SUCCESS);
+                    exit(true);
                 } else {
                     resetPinInput();
                     handleWrongPin();
@@ -301,7 +320,7 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
                 } else {
                     if (pin.equals(mPrevPin)) {
                         setPin(pin);
-                        exit(PIN_DIALOG_RESULT_SUCCESS);
+                        exit(true);
                     } else {
                         if (TextUtils.isEmpty(getPin())) {
                             mTitleView.setText(R.string.pin_enter_create_pin);
@@ -332,7 +351,7 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
     }
 
     private void setPin(String pin) {
-        if (DBG) Log.d(TAG, "setPin: " + pin);
+        if (DEBUG) Log.d(TAG, "setPin: " + pin);
         mPin = pin;
         mSharedPreferences.edit().putString(TvSettings.PREF_PIN, pin).apply();
     }
@@ -370,7 +389,8 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
             R.id.previous_number,
             R.id.current_number,
             R.id.next_number,
-            R.id.next2_number };
+            R.id.next2_number
+        };
         private static final int CURRENT_NUMBER_VIEW_INDEX = 2;
         private static final int NOT_INITIALIZED = Integer.MIN_VALUE;
 
@@ -415,8 +435,8 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
             this(context, attrs, defStyleAttr, 0);
         }
 
-        public PinNumberPicker(Context context, AttributeSet attrs, int defStyleAttr,
-                int defStyleRes) {
+        public PinNumberPicker(
+                Context context, AttributeSet attrs, int defStyleAttr, int defStyleRes) {
             super(context, attrs, defStyleAttr, defStyleRes);
             View view = inflate(context, R.layout.pin_number_picker, this);
             mNumberViewHolder = view.findViewById(R.id.number_view_holder);
@@ -426,118 +446,149 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
                 mNumberViews[i] = (TextView) view.findViewById(NUMBER_VIEWS_RES_ID[i]);
             }
             Resources resources = context.getResources();
-            mNumberViewHeight = resources.getDimensionPixelSize(
-                    R.dimen.pin_number_picker_text_view_height);
+            mNumberViewHeight =
+                    resources.getDimensionPixelSize(R.dimen.pin_number_picker_text_view_height);
 
-            mNumberViewHolder.setOnFocusChangeListener(new OnFocusChangeListener() {
-                @Override
-                public void onFocusChange(View v, boolean hasFocus) {
-                    updateFocus(true);
-                }
-            });
+            mNumberViewHolder.setOnFocusChangeListener(
+                    new OnFocusChangeListener() {
+                        @Override
+                        public void onFocusChange(View v, boolean hasFocus) {
+                            updateFocus(true);
+                        }
+                    });
 
-            mNumberViewHolder.setOnKeyListener(new OnKeyListener() {
-                @Override
-                public boolean onKey(View v, int keyCode, KeyEvent event) {
-                    if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                        switch (keyCode) {
-                            case KeyEvent.KEYCODE_DPAD_UP:
-                            case KeyEvent.KEYCODE_DPAD_DOWN: {
-                                if (mCancelAnimation) {
-                                    mScrollAnimatorSet.end();
+            mNumberViewHolder.setOnKeyListener(
+                    new OnKeyListener() {
+                        @Override
+                        public boolean onKey(View v, int keyCode, KeyEvent event) {
+                            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                                switch (keyCode) {
+                                    case KeyEvent.KEYCODE_DPAD_UP:
+                                    case KeyEvent.KEYCODE_DPAD_DOWN:
+                                        {
+                                            if (mCancelAnimation) {
+                                                mScrollAnimatorSet.end();
+                                            }
+                                            if (!mScrollAnimatorSet.isRunning()) {
+                                                mCancelAnimation = false;
+                                                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                                                    mNextValue =
+                                                            adjustValueInValidRange(
+                                                                    mCurrentValue + 1);
+                                                    startScrollAnimation(true);
+                                                } else {
+                                                    mNextValue =
+                                                            adjustValueInValidRange(
+                                                                    mCurrentValue - 1);
+                                                    startScrollAnimation(false);
+                                                }
+                                            }
+                                            return true;
+                                        }
                                 }
-                                if (!mScrollAnimatorSet.isRunning()) {
-                                    mCancelAnimation = false;
-                                    if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                                        mNextValue = adjustValueInValidRange(mCurrentValue + 1);
-                                        startScrollAnimation(true);
-                                    } else {
-                                        mNextValue = adjustValueInValidRange(mCurrentValue - 1);
-                                        startScrollAnimation(false);
-                                    }
+                            } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                                switch (keyCode) {
+                                    case KeyEvent.KEYCODE_DPAD_UP:
+                                    case KeyEvent.KEYCODE_DPAD_DOWN:
+                                        {
+                                            mCancelAnimation = true;
+                                            return true;
+                                        }
                                 }
-                                return true;
                             }
+                            return false;
                         }
-                    } else if (event.getAction() == KeyEvent.ACTION_UP) {
-                        switch (keyCode) {
-                            case KeyEvent.KEYCODE_DPAD_UP:
-                            case KeyEvent.KEYCODE_DPAD_DOWN: {
-                                mCancelAnimation = true;
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
-                }
-            });
+                    });
             mNumberViewHolder.setScrollY(mNumberViewHeight);
 
             mFocusGainAnimator = new AnimatorSet();
             mFocusGainAnimator.playTogether(
-                    ObjectAnimator.ofFloat(mNumberViews[CURRENT_NUMBER_VIEW_INDEX - 1],
-                            "alpha", 0f, sAlphaForAdjacentNumber),
-                    ObjectAnimator.ofFloat(mNumberViews[CURRENT_NUMBER_VIEW_INDEX],
-                            "alpha", sAlphaForFocusedNumber, 0f),
-                    ObjectAnimator.ofFloat(mNumberViews[CURRENT_NUMBER_VIEW_INDEX + 1],
-                            "alpha", 0f, sAlphaForAdjacentNumber),
+                    ObjectAnimator.ofFloat(
+                            mNumberViews[CURRENT_NUMBER_VIEW_INDEX - 1],
+                            "alpha",
+                            0f,
+                            sAlphaForAdjacentNumber),
+                    ObjectAnimator.ofFloat(
+                            mNumberViews[CURRENT_NUMBER_VIEW_INDEX],
+                            "alpha",
+                            sAlphaForFocusedNumber,
+                            0f),
+                    ObjectAnimator.ofFloat(
+                            mNumberViews[CURRENT_NUMBER_VIEW_INDEX + 1],
+                            "alpha",
+                            0f,
+                            sAlphaForAdjacentNumber),
                     ObjectAnimator.ofFloat(mBackgroundView, "alpha", 0f, 1f));
-            mFocusGainAnimator.setDuration(context.getResources().getInteger(
-                    android.R.integer.config_shortAnimTime));
-            mFocusGainAnimator.addListener(new AnimatorListenerAdapter() {
-                @Override
-                public void onAnimationEnd(Animator animator) {
-                    mNumberViews[CURRENT_NUMBER_VIEW_INDEX].setText(mBackgroundView.getText());
-                    mNumberViews[CURRENT_NUMBER_VIEW_INDEX].setAlpha(sAlphaForFocusedNumber);
-                    mBackgroundView.setText("");
-                }
-            });
+            mFocusGainAnimator.setDuration(
+                    context.getResources().getInteger(android.R.integer.config_shortAnimTime));
+            mFocusGainAnimator.addListener(
+                    new AnimatorListenerAdapter() {
+                        @Override
+                        public void onAnimationEnd(Animator animator) {
+                            mNumberViews[CURRENT_NUMBER_VIEW_INDEX].setText(
+                                    mBackgroundView.getText());
+                            mNumberViews[CURRENT_NUMBER_VIEW_INDEX].setAlpha(
+                                    sAlphaForFocusedNumber);
+                            mBackgroundView.setText("");
+                        }
+                    });
 
             mFocusLossAnimator = new AnimatorSet();
             mFocusLossAnimator.playTogether(
-                    ObjectAnimator.ofFloat(mNumberViews[CURRENT_NUMBER_VIEW_INDEX - 1],
-                            "alpha", sAlphaForAdjacentNumber, 0f),
-                    ObjectAnimator.ofFloat(mNumberViews[CURRENT_NUMBER_VIEW_INDEX + 1],
-                            "alpha", sAlphaForAdjacentNumber, 0f),
+                    ObjectAnimator.ofFloat(
+                            mNumberViews[CURRENT_NUMBER_VIEW_INDEX - 1],
+                            "alpha",
+                            sAlphaForAdjacentNumber,
+                            0f),
+                    ObjectAnimator.ofFloat(
+                            mNumberViews[CURRENT_NUMBER_VIEW_INDEX + 1],
+                            "alpha",
+                            sAlphaForAdjacentNumber,
+                            0f),
                     ObjectAnimator.ofFloat(mBackgroundView, "alpha", 1f, 0f));
-            mFocusLossAnimator.setDuration(context.getResources().getInteger(
-                    android.R.integer.config_shortAnimTime));
+            mFocusLossAnimator.setDuration(
+                    context.getResources().getInteger(android.R.integer.config_shortAnimTime));
 
             mScrollAnimatorSet = new AnimatorSet();
-            mScrollAnimatorSet.setDuration(context.getResources().getInteger(
-                    R.integer.pin_number_scroll_duration));
-            mScrollAnimatorSet.addListener(new AnimatorListenerAdapter() {
-                @Override
-                public void onAnimationEnd(Animator animation) {
-                    // Set mCurrent value when scroll animation is finished.
-                    mCurrentValue = mNextValue;
-                    updateText();
-                    mNumberViewHolder.setScrollY(mNumberViewHeight);
-                    mNumberViews[CURRENT_NUMBER_VIEW_INDEX - 1].setAlpha(sAlphaForAdjacentNumber);
-                    mNumberViews[CURRENT_NUMBER_VIEW_INDEX].setAlpha(sAlphaForFocusedNumber);
-                    mNumberViews[CURRENT_NUMBER_VIEW_INDEX + 1].setAlpha(sAlphaForAdjacentNumber);
-                }
-            });
+            mScrollAnimatorSet.setDuration(
+                    context.getResources().getInteger(R.integer.pin_number_scroll_duration));
+            mScrollAnimatorSet.addListener(
+                    new AnimatorListenerAdapter() {
+                        @Override
+                        public void onAnimationEnd(Animator animation) {
+                            // Set mCurrent value when scroll animation is finished.
+                            mCurrentValue = mNextValue;
+                            updateText();
+                            mNumberViewHolder.setScrollY(mNumberViewHeight);
+                            mNumberViews[CURRENT_NUMBER_VIEW_INDEX - 1].setAlpha(
+                                    sAlphaForAdjacentNumber);
+                            mNumberViews[CURRENT_NUMBER_VIEW_INDEX].setAlpha(
+                                    sAlphaForFocusedNumber);
+                            mNumberViews[CURRENT_NUMBER_VIEW_INDEX + 1].setAlpha(
+                                    sAlphaForAdjacentNumber);
+                        }
+                    });
         }
 
         static void loadResources(Context context) {
             if (sFocusedNumberEnterAnimator == null) {
                 TypedValue outValue = new TypedValue();
-                context.getResources().getValue(
-                        R.dimen.pin_alpha_for_focused_number, outValue, true);
+                context.getResources()
+                        .getValue(R.dimen.pin_alpha_for_focused_number, outValue, true);
                 sAlphaForFocusedNumber = outValue.getFloat();
-                context.getResources().getValue(
-                        R.dimen.pin_alpha_for_adjacent_number, outValue, true);
+                context.getResources()
+                        .getValue(R.dimen.pin_alpha_for_adjacent_number, outValue, true);
                 sAlphaForAdjacentNumber = outValue.getFloat();
 
-                sFocusedNumberEnterAnimator = AnimatorInflater.loadAnimator(context,
-                        R.animator.pin_focused_number_enter);
-                sFocusedNumberExitAnimator = AnimatorInflater.loadAnimator(context,
-                        R.animator.pin_focused_number_exit);
-                sAdjacentNumberEnterAnimator = AnimatorInflater.loadAnimator(context,
-                        R.animator.pin_adjacent_number_enter);
-                sAdjacentNumberExitAnimator = AnimatorInflater.loadAnimator(context,
-                        R.animator.pin_adjacent_number_exit);
+                sFocusedNumberEnterAnimator =
+                        AnimatorInflater.loadAnimator(context, R.animator.pin_focused_number_enter);
+                sFocusedNumberExitAnimator =
+                        AnimatorInflater.loadAnimator(context, R.animator.pin_focused_number_exit);
+                sAdjacentNumberEnterAnimator =
+                        AnimatorInflater.loadAnimator(
+                                context, R.animator.pin_adjacent_number_enter);
+                sAdjacentNumberExitAnimator =
+                        AnimatorInflater.loadAnimator(context, R.animator.pin_adjacent_number_exit);
             }
         }
 
@@ -567,15 +618,16 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
         void startScrollAnimation(boolean scrollUp) {
             mFocusGainAnimator.end();
             mFocusLossAnimator.end();
-            final ValueAnimator scrollAnimator = ValueAnimator.ofInt(
-                    0, scrollUp ? mNumberViewHeight : -mNumberViewHeight);
-            scrollAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-                @Override
-                public void onAnimationUpdate(ValueAnimator animation) {
-                    int value = (Integer) animation.getAnimatedValue();
-                    mNumberViewHolder.setScrollY(value + mNumberViewHeight);
-                }
-            });
+            final ValueAnimator scrollAnimator =
+                    ValueAnimator.ofInt(0, scrollUp ? mNumberViewHeight : -mNumberViewHeight);
+            scrollAnimator.addUpdateListener(
+                    new ValueAnimator.AnimatorUpdateListener() {
+                        @Override
+                        public void onAnimationUpdate(ValueAnimator animation) {
+                            int value = (Integer) animation.getAnimatedValue();
+                            mNumberViewHolder.setScrollY(value + mNumberViewHeight);
+                        }
+                    });
             scrollAnimator.setDuration(
                     getResources().getInteger(R.integer.pin_number_scroll_duration));
 
@@ -591,9 +643,12 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
                 sAdjacentNumberExitAnimator.setTarget(mNumberViews[CURRENT_NUMBER_VIEW_INDEX + 1]);
             }
 
-            mScrollAnimatorSet.playTogether(scrollAnimator,
-                    sAdjacentNumberExitAnimator, sFocusedNumberExitAnimator,
-                    sFocusedNumberEnterAnimator, sAdjacentNumberEnterAnimator);
+            mScrollAnimatorSet.playTogether(
+                    scrollAnimator,
+                    sAdjacentNumberExitAnimator,
+                    sFocusedNumberExitAnimator,
+                    sFocusedNumberEnterAnimator,
+                    sAdjacentNumberEnterAnimator);
             mScrollAnimatorSet.start();
         }
 
@@ -667,8 +722,10 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
                         // In order to show the text change animation, keep the text of
                         // mNumberViews[CURRENT_NUMBER_VIEW_INDEX].
                     } else {
-                        mNumberViews[i].setText(String.valueOf(adjustValueInValidRange(
-                                mCurrentValue - CURRENT_NUMBER_VIEW_INDEX + i)));
+                        mNumberViews[i].setText(
+                                String.valueOf(
+                                        adjustValueInValidRange(
+                                                mCurrentValue - CURRENT_NUMBER_VIEW_INDEX + i)));
                     }
                 }
             }
@@ -677,11 +734,28 @@ public class PinDialogFragment extends SafeDismissDialogFragment {
         private int adjustValueInValidRange(int value) {
             int interval = mMaxValue - mMinValue + 1;
             if (value < mMinValue - interval || value > mMaxValue + interval) {
-                throw new IllegalArgumentException("The value( " + value
-                        + ") is too small or too big to adjust");
+                throw new IllegalArgumentException(
+                        "The value( " + value + ") is too small or too big to adjust");
             }
-            return (value < mMinValue) ? value + interval
+            return (value < mMinValue)
+                    ? value + interval
                     : (value > mMaxValue) ? value - interval : value;
         }
+    }
+
+    /**
+     * A listener to the result of {@link PinDialogFragment}. Any activity requiring pin code
+     * checking should implement this listener to receive the result.
+     */
+    public interface OnPinCheckedListener {
+        /**
+         * Called when {@link PinDialogFragment} is dismissed.
+         *
+         * @param checked {@code true} if the pin code entered is checked to be correct, otherwise
+         *     {@code false}.
+         * @param type The dialog type regarding to what pin entering is for.
+         * @param rating The target rating to unblock for.
+         */
+        void onPinChecked(boolean checked, int type, String rating);
     }
 }

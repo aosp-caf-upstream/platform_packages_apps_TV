@@ -15,27 +15,21 @@
  */
 package com.android.tv.tests.jank;
 
-import android.content.res.Resources;
 import android.support.test.filters.MediumTest;
 import android.support.test.jank.GfxMonitor;
 import android.support.test.jank.JankTest;
-import android.support.test.jank.JankTestBase;
-import android.support.test.uiautomator.UiDevice;
-
-import com.android.tv.testing.uihelper.LiveChannelsUiDeviceHelper;
 import com.android.tv.testing.uihelper.MenuHelper;
 
-/**
- * Jank tests for the program guide.
- */
+/** Jank tests for the program guide. */
 @MediumTest
-public class MenuJankTest extends JankTestBase {
+public class MenuJankTest extends LiveChannelsTestCase {
     private static final String STARTING_CHANNEL = "1";
 
     /**
-     * The minimum number of frames expected during each jank test.
-     * If there is less the test will fail.  To be safe we loop the action in each test to create
-     * twice this many frames under normal conditions.
+     * The minimum number of frames expected during each jank test. If there is less the test will
+     * fail. To be safe we loop the action in each test to create twice this many frames under
+     * normal conditions.
+     *
      * <p>200 is chosen so there will be enough frame for the 90th, 95th, and 98th percentile
      * measurements are significant.
      *
@@ -43,26 +37,16 @@ public class MenuJankTest extends JankTestBase {
      */
     private static final int EXPECTED_FRAMES = 200;
 
-    protected UiDevice mDevice;
-
-    protected Resources mTargetResources;
     protected MenuHelper mMenuHelper;
-    protected LiveChannelsUiDeviceHelper mLiveChannelsHelper;
 
     @Override
     protected void setUp() throws Exception {
         super.setUp();
-        mDevice = UiDevice.getInstance(getInstrumentation());
-        mTargetResources = getInstrumentation().getTargetContext().getResources();
         mMenuHelper = new MenuHelper(mDevice, mTargetResources);
-        mLiveChannelsHelper = new LiveChannelsUiDeviceHelper(mDevice, mTargetResources,
-                getInstrumentation().getContext());
-        mLiveChannelsHelper.assertAppStarted();
         Utils.pressKeysForChannelNumber(STARTING_CHANNEL, mDevice);
     }
 
-    @JankTest(expectedFrames = EXPECTED_FRAMES,
-            beforeTest = "fillTheMenuRowWithPreviousChannels")
+    @JankTest(expectedFrames = EXPECTED_FRAMES, beforeTest = "fillTheMenuRowWithPreviousChannels")
     @GfxMonitor(processName = Utils.LIVE_CHANNELS_PROCESS_NAME)
     public void testShowMenu() {
         int frames = 40; // measured by hand.

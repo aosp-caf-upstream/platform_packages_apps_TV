@@ -17,32 +17,20 @@
 package com.android.tv.ui.sidepanel;
 
 import android.view.View;
-import android.widget.ImageView;
 import android.widget.TextView;
-
 import com.android.tv.R;
 
 public abstract class ActionItem extends Item {
     private final String mTitle;
     private final String mDescription;
-    private final int mIconId;
 
     public ActionItem(String title) {
-        this(title, null, 0);
+        this(title, null);
     }
 
     public ActionItem(String title, String description) {
-        this(title, description, 0);
-    }
-
-    public ActionItem(String title, int iconId) {
-        this(title, null, iconId);
-    }
-
-    public ActionItem(String title, String description, int iconId) {
         mTitle = title;
         mDescription = description;
-        mIconId = iconId;
     }
 
     @Override
@@ -61,13 +49,6 @@ public abstract class ActionItem extends Item {
             descriptionView.setText(mDescription);
         } else {
             descriptionView.setVisibility(View.GONE);
-        }
-        ImageView iconView = (ImageView) view.findViewById(R.id.icon);
-        if (mIconId != 0) {
-            iconView.setVisibility(View.VISIBLE);
-            iconView.setImageResource(mIconId);
-        } else {
-            iconView.setVisibility(View.GONE);
         }
     }
 }

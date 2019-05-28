@@ -17,15 +17,16 @@
 package com.android.tv.ui.sidepanel.parentalcontrols;
 
 import android.graphics.drawable.Drawable;
+import android.media.tv.TvContentRating;
 import android.os.Bundle;
 import android.util.ArrayMap;
 import android.util.SparseIntArray;
 import android.view.View;
 import android.widget.CompoundButton;
 import android.widget.ImageView;
-
 import com.android.tv.MainActivity;
 import com.android.tv.R;
+import com.android.tv.common.experiments.Experiments;
 import com.android.tv.dialog.WebDialogFragment;
 import com.android.tv.license.LicenseUtils;
 import com.android.tv.parental.ContentRatingSystem;
@@ -38,7 +39,6 @@ import com.android.tv.ui.sidepanel.RadioButtonItem;
 import com.android.tv.ui.sidepanel.SideFragment;
 import com.android.tv.util.TvSettings;
 import com.android.tv.util.TvSettings.ContentRatingLevel;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -52,36 +52,34 @@ public class RatingsFragment extends SideFragment {
 
     static {
         sLevelResourceIdMap = new SparseIntArray(5);
-        sLevelResourceIdMap.put(TvSettings.CONTENT_RATING_LEVEL_NONE,
-                R.string.option_rating_none);
-        sLevelResourceIdMap.put(TvSettings.CONTENT_RATING_LEVEL_HIGH,
-                R.string.option_rating_high);
-        sLevelResourceIdMap.put(TvSettings.CONTENT_RATING_LEVEL_MEDIUM,
-                R.string.option_rating_medium);
-        sLevelResourceIdMap.put(TvSettings.CONTENT_RATING_LEVEL_LOW,
-                R.string.option_rating_low);
-        sLevelResourceIdMap.put(TvSettings.CONTENT_RATING_LEVEL_CUSTOM,
-                R.string.option_rating_custom);
+        sLevelResourceIdMap.put(TvSettings.CONTENT_RATING_LEVEL_NONE, R.string.option_rating_none);
+        sLevelResourceIdMap.put(TvSettings.CONTENT_RATING_LEVEL_HIGH, R.string.option_rating_high);
+        sLevelResourceIdMap.put(
+                TvSettings.CONTENT_RATING_LEVEL_MEDIUM, R.string.option_rating_medium);
+        sLevelResourceIdMap.put(TvSettings.CONTENT_RATING_LEVEL_LOW, R.string.option_rating_low);
+        sLevelResourceIdMap.put(
+                TvSettings.CONTENT_RATING_LEVEL_CUSTOM, R.string.option_rating_custom);
 
         sDescriptionResourceIdMap = new SparseIntArray(sLevelResourceIdMap.size());
-        sDescriptionResourceIdMap.put(TvSettings.CONTENT_RATING_LEVEL_HIGH,
-                R.string.option_rating_high_description);
-        sDescriptionResourceIdMap.put(TvSettings.CONTENT_RATING_LEVEL_MEDIUM,
-                R.string.option_rating_medium_description);
-        sDescriptionResourceIdMap.put(TvSettings.CONTENT_RATING_LEVEL_LOW,
-                R.string.option_rating_low_description);
-        sDescriptionResourceIdMap.put(TvSettings.CONTENT_RATING_LEVEL_CUSTOM,
-                R.string.option_rating_custom_description);
+        sDescriptionResourceIdMap.put(
+                TvSettings.CONTENT_RATING_LEVEL_HIGH, R.string.option_rating_high_description);
+        sDescriptionResourceIdMap.put(
+                TvSettings.CONTENT_RATING_LEVEL_MEDIUM, R.string.option_rating_medium_description);
+        sDescriptionResourceIdMap.put(
+                TvSettings.CONTENT_RATING_LEVEL_LOW, R.string.option_rating_low_description);
+        sDescriptionResourceIdMap.put(
+                TvSettings.CONTENT_RATING_LEVEL_CUSTOM, R.string.option_rating_custom_description);
     }
 
     private final List<RatingLevelItem> mRatingLevelItems = new ArrayList<>();
     // A map from the rating system ID string to RatingItem objects.
     private final Map<String, List<RatingItem>> mContentRatingSystemItemMap = new ArrayMap<>();
+    private CheckBoxItem mBlockUnratedItem;
     private ParentalControlSettings mParentalControlSettings;
 
     public static String getDescription(MainActivity tvActivity) {
-        @ContentRatingLevel int currentLevel =
-                tvActivity.getParentalControlSettings().getContentRatingLevel();
+        @ContentRatingLevel
+        int currentLevel = tvActivity.getParentalControlSettings().getContentRatingLevel();
         if (sLevelResourceIdMap.indexOfKey(currentLevel) >= 0) {
             return tvActivity.getString(sLevelResourceIdMap.get(currentLevel));
         }
@@ -102,6 +100,12 @@ public class RatingsFragment extends SideFragment {
     protected List<Item> getItemList() {
         List<Item> items = new ArrayList<>();
 
+        if (mBlockUnratedItem != null
+                && Boolean.TRUE.equals(Experiments.ENABLE_UNRATED_CONTENT_SETTINGS.get())) {
+            items.add(mBlockUnratedItem);
+            items.add(new DividerItem());
+        }
+
         mRatingLevelItems.clear();
         for (int i = 0; i < sLevelResourceIdMap.size(); ++i) {
             mRatingLevelItems.add(new RatingLevelItem(sLevelResourceIdMap.keyAt(i)));
@@ -121,9 +125,10 @@ public class RatingsFragment extends SideFragment {
                 boolean hasSubRating = false;
                 items.add(new DividerItem(s.getDisplayName()));
                 for (Rating rating : s.getRatings()) {
-                    RatingItem item = rating.getSubRatings().isEmpty() ?
-                            new RatingItem(s, rating) :
-                            new RatingWithSubItem(s, rating);
+                    RatingItem item =
+                            rating.getSubRatings().isEmpty()
+                                    ? new RatingItem(s, rating)
+                                    : new RatingWithSubItem(s, rating);
                     items.add(item);
                     if (rating.getSubRatings().isEmpty()) {
                         ratingItems.add(item);
@@ -152,6 +157,28 @@ public class RatingsFragment extends SideFragment {
         super.onCreate(savedInstanceState);
         mParentalControlSettings = getMainActivity().getParentalControlSettings();
         mParentalControlSettings.loadRatings();
+        if (Boolean.TRUE.equals(Experiments.ENABLE_UNRATED_CONTENT_SETTINGS.get())) {
+            mBlockUnratedItem =
+                    new CheckBoxItem(
+                            getResources().getString(R.string.option_block_unrated_programs)) {
+
+                        @Override
+                        protected void onUpdate() {
+                            super.onUpdate();
+                            setChecked(
+                                    mParentalControlSettings.isRatingBlocked(
+                                            new TvContentRating[] {TvContentRating.UNRATED}));
+                        }
+
+                        @Override
+                        protected void onSelected() {
+                            super.onSelected();
+                            if (mParentalControlSettings.setUnratedBlocked(isChecked())) {
+                                updateRatingLevels();
+                            }
+                        }
+                    };
+        }
     }
 
     @Override
@@ -172,15 +199,18 @@ public class RatingsFragment extends SideFragment {
         }
     }
 
-    private void updateDependentRatingItems(ContentRatingSystem.Order order,
-            int selectedRatingOrderIndex, String contentRatingSystemId, boolean isChecked) {
+    private void updateDependentRatingItems(
+            ContentRatingSystem.Order order,
+            int selectedRatingOrderIndex,
+            String contentRatingSystemId,
+            boolean isChecked) {
         List<RatingItem> ratingItems = mContentRatingSystemItemMap.get(contentRatingSystemId);
         if (ratingItems != null) {
             for (RatingItem item : ratingItems) {
                 int ratingOrderIndex = item.getRatingOrderIndex(order);
                 if (ratingOrderIndex != -1
                         && ((ratingOrderIndex > selectedRatingOrderIndex && isChecked)
-                        || (ratingOrderIndex < selectedRatingOrderIndex && !isChecked))) {
+                                || (ratingOrderIndex < selectedRatingOrderIndex && !isChecked))) {
                     item.setRatingBlocked(isChecked);
                 }
             }
@@ -191,9 +221,11 @@ public class RatingsFragment extends SideFragment {
         private final int mRatingLevel;
 
         private RatingLevelItem(int ratingLevel) {
-            super(getString(sLevelResourceIdMap.get(ratingLevel)),
-                    (sDescriptionResourceIdMap.indexOfKey(ratingLevel) >= 0) ?
-                            getString(sDescriptionResourceIdMap.get(ratingLevel)) : null);
+            super(
+                    getString(sLevelResourceIdMap.get(ratingLevel)),
+                    (sDescriptionResourceIdMap.indexOfKey(ratingLevel) >= 0)
+                            ? getString(sDescriptionResourceIdMap.get(ratingLevel))
+                            : null);
             mRatingLevel = ratingLevel;
         }
 
@@ -202,6 +234,13 @@ public class RatingsFragment extends SideFragment {
             super.onSelected();
             mParentalControlSettings.setContentRatingLevel(
                     getMainActivity().getContentRatingsManager(), mRatingLevel);
+            if (mBlockUnratedItem != null
+                    && Boolean.TRUE.equals(Experiments.ENABLE_UNRATED_CONTENT_SETTINGS.get())) {
+                // set checked if UNRATED is blocked, and set unchecked otherwise.
+                mBlockUnratedItem.setChecked(
+                        mParentalControlSettings.isRatingBlocked(
+                                new TvContentRating[] {TvContentRating.UNRATED}));
+            }
             notifyItemsChanged(mRatingLevelItems.size());
         }
     }
@@ -266,8 +305,11 @@ public class RatingsFragment extends SideFragment {
             }
             // Automatically check/uncheck dependent ratings.
             for (int i = 0; i < mOrders.size(); i++) {
-                updateDependentRatingItems(mOrders.get(i), mOrderIndexes.get(i),
-                        mContentRatingSystem.getId(), isChecked());
+                updateDependentRatingItems(
+                        mOrders.get(i),
+                        mOrderIndexes.get(i),
+                        mContentRatingSystem.getId(),
+                        isChecked());
             }
         }
 
@@ -301,14 +343,16 @@ public class RatingsFragment extends SideFragment {
 
         @Override
         protected void onSelected() {
-            getMainActivity().getOverlayManager().getSideFragmentManager()
-                    .show(new SubRatingsFragment(mContentRatingSystem, mRating));
+            getMainActivity()
+                    .getOverlayManager()
+                    .getSideFragmentManager()
+                    .show(SubRatingsFragment.create(mContentRatingSystem, mRating.getName()));
         }
 
         @Override
         protected int getButtonDrawable() {
-            int blockedStatus = mParentalControlSettings.getBlockedStatus(
-                    mContentRatingSystem, mRating);
+            int blockedStatus =
+                    mParentalControlSettings.getBlockedStatus(mContentRatingSystem, mRating);
             if (blockedStatus == ParentalControlSettings.RATING_BLOCKED) {
                 return R.drawable.btn_lock_material;
             } else if (blockedStatus == ParentalControlSettings.RATING_BLOCKED_PARTIAL) {
@@ -318,11 +362,9 @@ public class RatingsFragment extends SideFragment {
         }
     }
 
-    /**
-     * Opens a dialog showing the sources of the rating descriptions.
-     */
+    /** Opens a dialog showing the sources of the rating descriptions. */
     public static class AttributionItem extends Item {
-        public final static String DIALOG_TAG = AttributionItem.class.getSimpleName();
+        public static final String DIALOG_TAG = AttributionItem.class.getSimpleName();
         public static final String TRACKER_LABEL = "Sources for content rating systems";
         private final MainActivity mMainActivity;
 
@@ -337,9 +379,11 @@ public class RatingsFragment extends SideFragment {
 
         @Override
         protected void onSelected() {
-            WebDialogFragment dialog = WebDialogFragment.newInstance(
-                    LicenseUtils.RATING_SOURCE_FILE,
-                    mMainActivity.getString(R.string.option_attribution), TRACKER_LABEL);
+            WebDialogFragment dialog =
+                    WebDialogFragment.newInstance(
+                            LicenseUtils.RATING_SOURCE_FILE,
+                            mMainActivity.getString(R.string.option_attribution),
+                            TRACKER_LABEL);
             mMainActivity.getOverlayManager().showDialogFragment(DIALOG_TAG, dialog, false);
         }
     }

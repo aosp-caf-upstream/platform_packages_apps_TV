@@ -16,54 +16,30 @@
 
 package com.android.tv.ui.sidepanel;
 
+import static com.android.tv.TvFeatures.TUNER;
+
+import android.app.ApplicationErrorReport;
+import android.content.Intent;
+import android.media.tv.TvInputInfo;
 import android.view.View;
 import android.widget.Toast;
-
 import com.android.tv.MainActivity;
 import com.android.tv.R;
 import com.android.tv.TvApplication;
+import com.android.tv.TvSingletons;
+import com.android.tv.common.CommonPreferences;
+import com.android.tv.common.customization.CustomizationManager;
+import com.android.tv.common.util.PermissionUtils;
 import com.android.tv.dialog.PinDialogFragment;
-import com.android.tv.dialog.WebDialogFragment;
-import com.android.tv.license.LicenseUtils;
-import com.android.tv.ui.sidepanel.parentalcontrols.ParentalControlsFragment;
-import com.android.tv.util.PermissionUtils;
-import com.android.tv.util.SetupUtils;
-
+import com.android.tv.license.LicenseSideFragment;
+import com.android.tv.license.Licenses;
+import com.android.tv.util.Utils;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Shows Live TV settings.
- */
+/** Shows Live TV settings. */
 public class SettingsFragment extends SideFragment {
     private static final String TRACKER_LABEL = "settings";
-
-    private final long mCurrentChannelId;
-
-    public SettingsFragment(long currentChannelId) {
-        mCurrentChannelId = currentChannelId;
-    }
-
-    /**
-     * Opens a dialog showing open source licenses.
-     */
-    public static final class LicenseActionItem extends ActionItem {
-        public final static String DIALOG_TAG = LicenseActionItem.class.getSimpleName();
-        public static final String TRACKER_LABEL = "Open Source Licenses";
-        private final MainActivity mMainActivity;
-
-        public LicenseActionItem(MainActivity mainActivity) {
-            super(mainActivity.getString(R.string.settings_menu_licenses));
-            mMainActivity = mainActivity;
-        }
-
-        @Override
-        protected void onSelected() {
-            WebDialogFragment dialog = WebDialogFragment.newInstance(LicenseUtils.LICENSE_FILE,
-                    mMainActivity.getString(R.string.dialog_title_licenses), TRACKER_LABEL);
-            mMainActivity.getOverlayManager().showDialogFragment(DIALOG_TAG, dialog, false);
-        }
-    }
 
     @Override
     protected String getTitle() {
@@ -78,83 +54,154 @@ public class SettingsFragment extends SideFragment {
     @Override
     protected List<Item> getItemList() {
         List<Item> items = new ArrayList<>();
-        final Item customizeChannelListItem = new SubMenuItem(
-                getString(R.string.settings_channel_source_item_customize_channels),
-                getString(R.string.settings_channel_source_item_customize_channels_description), 0,
-                getMainActivity().getOverlayManager().getSideFragmentManager()) {
-            @Override
-            protected SideFragment getFragment() {
-                return new CustomizeChannelListFragment(mCurrentChannelId);
-            }
+        final Item customizeChannelListItem =
+                new SubMenuItem(
+                        getString(R.string.settings_channel_source_item_customize_channels),
+                        getString(
+                                R.string
+                                        .settings_channel_source_item_customize_channels_description),
+                        getMainActivity().getOverlayManager().getSideFragmentManager()) {
+                    @Override
+                    protected SideFragment getFragment() {
+                        return new CustomizeChannelListFragment();
+                    }
 
-            @Override
-            protected void onBind(View view) {
-                super.onBind(view);
-                setEnabled(false);
-            }
+                    @Override
+                    protected void onBind(View view) {
+                        super.onBind(view);
+                        setEnabled(false);
+                    }
 
-            @Override
-            protected void onUpdate() {
-                super.onUpdate();
-                setEnabled(getChannelDataManager().getChannelCount() != 0);
-            }
-        };
+                    @Override
+                    protected void onUpdate() {
+                        super.onUpdate();
+                        setEnabled(getChannelDataManager().getChannelCount() != 0);
+                    }
+                };
         customizeChannelListItem.setEnabled(false);
         items.add(customizeChannelListItem);
         final MainActivity activity = getMainActivity();
-        boolean hasNewInput = SetupUtils.getInstance(activity)
-                .hasNewInput(activity.getTvInputManagerHelper());
-        items.add(new ActionItem(
-                getString(R.string.settings_channel_source_item_setup),
-                hasNewInput ? getString(R.string.settings_channel_source_item_setup_new_inputs)
-                        : null) {
-            @Override
-            protected void onSelected() {
-                closeFragment();
-                activity.getOverlayManager().showSetupFragment();
-            }
-        });
+        boolean hasNewInput =
+                TvSingletons.getSingletons(getContext())
+                        .getSetupUtils()
+                        .hasNewInput(activity.getTvInputManagerHelper());
+        items.add(
+                new ActionItem(
+                        getString(R.string.settings_channel_source_item_setup),
+                        hasNewInput
+                                ? getString(R.string.settings_channel_source_item_setup_new_inputs)
+                                : null) {
+                    @Override
+                    protected void onSelected() {
+                        closeFragment();
+                        activity.getOverlayManager().showSetupFragment();
+                    }
+                });
         if (PermissionUtils.hasModifyParentalControls(getMainActivity())) {
-            items.add(new ActionItem(
-                    getString(R.string.settings_parental_controls), getString(
-                    activity.getParentalControlSettings().isParentalControlsEnabled()
-                            ? R.string.option_toggle_parental_controls_on
-                            : R.string.option_toggle_parental_controls_off)) {
-                @Override
-                protected void onSelected() {
-                    final MainActivity tvActivity = getMainActivity();
-                    final SideFragmentManager sideFragmentManager = tvActivity.getOverlayManager()
-                            .getSideFragmentManager();
-                    sideFragmentManager.hideSidePanel(true);
-                    PinDialogFragment fragment = new PinDialogFragment(
-                            PinDialogFragment.PIN_DIALOG_TYPE_ENTER_PIN,
-                            new PinDialogFragment.ResultListener() {
-                                @Override
-                                public void done(boolean success) {
-                                    if (success) {
-                                        sideFragmentManager
-                                                .show(new ParentalControlsFragment(), false);
-                                        sideFragmentManager.showSidePanel(true);
-                                    } else {
-                                        sideFragmentManager.hideAll(false);
-                                    }
-                                }
-                            });
-                    tvActivity.getOverlayManager()
-                            .showDialogFragment(PinDialogFragment.DIALOG_TAG, fragment, true);
-                }
-            });
+            items.add(
+                    new ActionItem(
+                            getString(R.string.settings_parental_controls),
+                            getString(
+                                    activity.getParentalControlSettings()
+                                                    .isParentalControlsEnabled()
+                                            ? R.string.option_toggle_parental_controls_on
+                                            : R.string.option_toggle_parental_controls_off)) {
+                        @Override
+                        protected void onSelected() {
+                            getMainActivity()
+                                    .getOverlayManager()
+                                    .getSideFragmentManager()
+                                    .hideSidePanel(true);
+                            PinDialogFragment fragment =
+                                    PinDialogFragment.create(
+                                            PinDialogFragment.PIN_DIALOG_TYPE_ENTER_PIN);
+                            getMainActivity()
+                                    .getOverlayManager()
+                                    .showDialogFragment(
+                                            PinDialogFragment.DIALOG_TAG, fragment, true);
+                        }
+                    });
         } else {
             // Note: parental control is turned off, when MODIFY_PARENTAL_CONTROLS is not granted.
             // But, we may be able to turn on channel lock feature regardless of the permission.
             // It's TBD.
         }
-        if (LicenseUtils.hasLicenses(activity.getAssets())) {
-            items.add(new LicenseActionItem(activity));
+        boolean showTrickplaySetting = false;
+        if (TUNER.isEnabled(getContext())) {
+            for (TvInputInfo inputInfo :
+                    TvSingletons.getSingletons(getContext())
+                            .getTvInputManagerHelper()
+                            .getTvInputInfos(true, true)) {
+                if (Utils.isInternalTvInput(getContext(), inputInfo.getId())) {
+                    showTrickplaySetting = true;
+                    break;
+                }
+            }
+            if (showTrickplaySetting) {
+                showTrickplaySetting =
+                        CustomizationManager.getTrickplayMode(getContext())
+                                == CustomizationManager.TRICKPLAY_MODE_ENABLED;
+            }
+        }
+        if (showTrickplaySetting) {
+            items.add(
+                    new SwitchItem(
+                            getString(R.string.settings_trickplay),
+                            getString(R.string.settings_trickplay),
+                            getString(R.string.settings_trickplay_description),
+                            getResources().getInteger(R.integer.trickplay_description_max_lines)) {
+                        @Override
+                        protected void onUpdate() {
+                            super.onUpdate();
+                            boolean enabled =
+                                    CommonPreferences.getTrickplaySetting(getContext())
+                                            != CommonPreferences.TRICKPLAY_SETTING_DISABLED;
+                            setChecked(enabled);
+                        }
+
+                        @Override
+                        protected void onSelected() {
+                            super.onSelected();
+                            @CommonPreferences.TrickplaySetting
+                            int setting =
+                                    isChecked()
+                                            ? CommonPreferences.TRICKPLAY_SETTING_ENABLED
+                                            : CommonPreferences.TRICKPLAY_SETTING_DISABLED;
+                            CommonPreferences.setTrickplaySetting(getContext(), setting);
+                        }
+                    });
+        }
+        items.add(
+                new ActionItem(getString(R.string.settings_send_feedback)) {
+                    @Override
+                    protected void onSelected() {
+                        Intent intent = new Intent(Intent.ACTION_APP_ERROR);
+                        ApplicationErrorReport report = new ApplicationErrorReport();
+                        report.packageName = report.processName = getContext().getPackageName();
+                        report.time = System.currentTimeMillis();
+                        report.type = ApplicationErrorReport.TYPE_NONE;
+                        intent.putExtra(Intent.EXTRA_BUG_REPORT, report);
+                        startActivityForResult(intent, 0);
+                    }
+                });
+        if (Licenses.hasLicenses(getContext())) {
+            items.add(
+                    new SubMenuItem(
+                            getString(R.string.settings_menu_licenses),
+                            getMainActivity().getOverlayManager().getSideFragmentManager()) {
+                        @Override
+                        protected SideFragment getFragment() {
+                            return new LicenseSideFragment();
+                        }
+                    });
         }
         // Show version.
-        items.add(new SimpleItem(getString(R.string.settings_menu_version),
-                ((TvApplication) activity.getApplicationContext()).getVersionName()));
+        SimpleActionItem version =
+                new SimpleActionItem(
+                        getString(R.string.settings_menu_version),
+                        ((TvApplication) activity.getApplicationContext()).getVersionName());
+        version.setClickable(false);
+        items.add(version);
         return items;
     }
 

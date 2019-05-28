@@ -16,8 +16,6 @@
 
 package com.android.tv.guide;
 
-import static com.android.tv.util.ImageLoader.ImageLoaderCallback;
-
 import android.animation.Animator;
 import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
@@ -45,35 +43,35 @@ import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.ViewTreeObserver;
 import android.view.accessibility.AccessibilityManager;
+import android.view.accessibility.AccessibilityManager.AccessibilityStateChangeListener;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-
 import com.android.tv.R;
-import com.android.tv.TvApplication;
+import com.android.tv.TvSingletons;
 import com.android.tv.common.feature.CommonFeatures;
-import com.android.tv.data.Channel;
+import com.android.tv.common.util.CommonUtils;
 import com.android.tv.data.Program;
 import com.android.tv.data.Program.CriticScore;
+import com.android.tv.data.api.Channel;
 import com.android.tv.dvr.DvrDataManager;
 import com.android.tv.dvr.DvrManager;
-import com.android.tv.dvr.ScheduledRecording;
+import com.android.tv.dvr.data.ScheduledRecording;
 import com.android.tv.guide.ProgramManager.TableEntriesUpdatedListener;
 import com.android.tv.parental.ParentalControlSettings;
 import com.android.tv.ui.HardwareLayerAnimatorListenerAdapter;
-import com.android.tv.util.ImageCache;
-import com.android.tv.util.ImageLoader;
-import com.android.tv.util.ImageLoader.LoadTvInputLogoTask;
 import com.android.tv.util.TvInputManagerHelper;
 import com.android.tv.util.Utils;
+import com.android.tv.util.images.ImageCache;
+import com.android.tv.util.images.ImageLoader;
+import com.android.tv.util.images.ImageLoader.ImageLoaderCallback;
+import com.android.tv.util.images.ImageLoader.LoadTvInputLogoTask;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Adapts the {@link ProgramListAdapter} list to the body of the program guide table.
- */
-public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapter.ProgramRowHolder>
+/** Adapts the {@link ProgramListAdapter} list to the body of the program guide table. */
+class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapter.ProgramRowViewHolder>
         implements ProgramManager.TableEntryChangedListener {
     private static final String TAG = "ProgramTableAdapter";
     private static final boolean DEBUG = false;
@@ -112,75 +110,78 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
     private final int mDvrPaddingStartWithTrack;
     private final int mDvrPaddingStartWithOutTrack;
 
-    public ProgramTableAdapter(Context context, ProgramManager programManager,
-            ProgramGuide programGuide) {
+    ProgramTableAdapter(Context context, ProgramGuide programGuide) {
         mContext = context;
         mAccessibilityManager =
                 (AccessibilityManager) context.getSystemService(Context.ACCESSIBILITY_SERVICE);
-        mTvInputManagerHelper = TvApplication.getSingletons(context).getTvInputManagerHelper();
+        mTvInputManagerHelper = TvSingletons.getSingletons(context).getTvInputManagerHelper();
         if (CommonFeatures.DVR.isEnabled(context)) {
-            mDvrManager = TvApplication.getSingletons(context).getDvrManager();
-            mDvrDataManager = TvApplication.getSingletons(context).getDvrDataManager();
+            mDvrManager = TvSingletons.getSingletons(context).getDvrManager();
+            mDvrDataManager = TvSingletons.getSingletons(context).getDvrDataManager();
         } else {
             mDvrManager = null;
             mDvrDataManager = null;
         }
-        mProgramManager = programManager;
         mProgramGuide = programGuide;
+        mProgramManager = programGuide.getProgramManager();
 
         Resources res = context.getResources();
-        mChannelLogoWidth = res.getDimensionPixelSize(
-                R.dimen.program_guide_table_header_column_channel_logo_width);
-        mChannelLogoHeight = res.getDimensionPixelSize(
-                R.dimen.program_guide_table_header_column_channel_logo_height);
-        mImageWidth = res.getDimensionPixelSize(
-                R.dimen.program_guide_table_detail_image_width);
-        mImageHeight = res.getDimensionPixelSize(
-                R.dimen.program_guide_table_detail_image_height);
-        mProgramTitleForNoInformation = res.getString(
-                R.string.program_title_for_no_information);
-        mProgramTitleForBlockedChannel = res.getString(
-                R.string.program_title_for_blocked_channel);
-        mChannelTextColor = res.getColor(
-                R.color.program_guide_table_header_column_channel_number_text_color, null);
-        mChannelBlockedTextColor = res.getColor(
-                R.color.program_guide_table_header_column_channel_number_blocked_text_color, null);
-        mDetailTextColor = res.getColor(
-                R.color.program_guide_table_detail_title_text_color, null);
-        mDetailGrayedTextColor = res.getColor(
-                R.color.program_guide_table_detail_title_grayed_text_color, null);
+        mChannelLogoWidth =
+                res.getDimensionPixelSize(
+                        R.dimen.program_guide_table_header_column_channel_logo_width);
+        mChannelLogoHeight =
+                res.getDimensionPixelSize(
+                        R.dimen.program_guide_table_header_column_channel_logo_height);
+        mImageWidth = res.getDimensionPixelSize(R.dimen.program_guide_table_detail_image_width);
+        mImageHeight = res.getDimensionPixelSize(R.dimen.program_guide_table_detail_image_height);
+        mProgramTitleForNoInformation = res.getString(R.string.program_title_for_no_information);
+        mProgramTitleForBlockedChannel = res.getString(R.string.program_title_for_blocked_channel);
+        mChannelTextColor =
+                res.getColor(
+                        R.color.program_guide_table_header_column_channel_number_text_color, null);
+        mChannelBlockedTextColor =
+                res.getColor(
+                        R.color.program_guide_table_header_column_channel_number_blocked_text_color,
+                        null);
+        mDetailTextColor = res.getColor(R.color.program_guide_table_detail_title_text_color, null);
+        mDetailGrayedTextColor =
+                res.getColor(R.color.program_guide_table_detail_title_grayed_text_color, null);
         mAnimationDuration =
                 res.getInteger(R.integer.program_guide_table_detail_fade_anim_duration);
-        mDetailPadding = res.getDimensionPixelOffset(
-                R.dimen.program_guide_table_detail_padding);
+        mDetailPadding = res.getDimensionPixelOffset(R.dimen.program_guide_table_detail_padding);
         mProgramRecordableText = res.getString(R.string.dvr_epg_program_recordable);
         mRecordingScheduledText = res.getString(R.string.dvr_epg_program_recording_scheduled);
         mRecordingConflictText = res.getString(R.string.dvr_epg_program_recording_conflict);
         mRecordingFailedText = res.getString(R.string.dvr_epg_program_recording_failed);
         mRecordingInProgressText = res.getString(R.string.dvr_epg_program_recording_in_progress);
-        mDvrPaddingStartWithTrack = res.getDimensionPixelOffset(
-                R.dimen.program_guide_table_detail_dvr_margin_start);
-        mDvrPaddingStartWithOutTrack = res.getDimensionPixelOffset(
-                R.dimen.program_guide_table_detail_dvr_margin_start_without_track);
+        mDvrPaddingStartWithTrack =
+                res.getDimensionPixelOffset(R.dimen.program_guide_table_detail_dvr_margin_start);
+        mDvrPaddingStartWithOutTrack =
+                res.getDimensionPixelOffset(
+                        R.dimen.program_guide_table_detail_dvr_margin_start_without_track);
 
-        int episodeTitleSize = res.getDimensionPixelSize(
-                R.dimen.program_guide_table_detail_episode_title_text_size);
-        ColorStateList episodeTitleColor = ColorStateList.valueOf(
-                res.getColor(R.color.program_guide_table_detail_episode_title_text_color, null));
-        mEpisodeTitleStyle = new TextAppearanceSpan(null, 0, episodeTitleSize,
-                episodeTitleColor, null);
+        int episodeTitleSize =
+                res.getDimensionPixelSize(
+                        R.dimen.program_guide_table_detail_episode_title_text_size);
+        ColorStateList episodeTitleColor =
+                ColorStateList.valueOf(
+                        res.getColor(
+                                R.color.program_guide_table_detail_episode_title_text_color, null));
+        mEpisodeTitleStyle =
+                new TextAppearanceSpan(null, 0, episodeTitleSize, episodeTitleColor, null);
 
         mCriticScoreViews = new ArrayList<>();
         mRecycledViewPool = new RecycledViewPool();
-        mRecycledViewPool.setMaxRecycledViews(R.layout.program_guide_table_item,
-                context.getResources().getInteger(
-                        R.integer.max_recycled_view_pool_epg_table_item));
-        mProgramManager.addListener(new ProgramManager.ListenerAdapter() {
-            @Override
-            public void onChannelsUpdated() {
-                update();
-            }
-        });
+        mRecycledViewPool.setMaxRecycledViews(
+                R.layout.program_guide_table_item,
+                context.getResources().getInteger(R.integer.max_recycled_view_pool_epg_table_item));
+        mProgramManager.addListener(
+                new ProgramManager.ListenerAdapter() {
+                    @Override
+                    public void onChannelsUpdated() {
+                        update();
+                    }
+                });
         update();
         mProgramManager.addTableEntryChangedListener(this);
     }
@@ -192,8 +193,8 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
         }
         mProgramListAdapters.clear();
         for (int i = 0; i < mProgramManager.getChannelCount(); i++) {
-            ProgramListAdapter listAdapter = new ProgramListAdapter(mContext.getResources(),
-                    mProgramManager, i);
+            ProgramListAdapter listAdapter =
+                    new ProgramListAdapter(mContext.getResources(), mProgramGuide, i);
             mProgramManager.addTableEntriesUpdatedListener(listAdapter);
             mProgramListAdapters.add(listAdapter);
         }
@@ -211,12 +212,12 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
     }
 
     @Override
-    public void onBindViewHolder(ProgramRowHolder holder, int position) {
+    public void onBindViewHolder(ProgramRowViewHolder holder, int position) {
         holder.onBind(position);
     }
 
     @Override
-    public void onBindViewHolder(ProgramRowHolder holder, int position, List<Object> payloads) {
+    public void onBindViewHolder(ProgramRowViewHolder holder, int position, List<Object> payloads) {
         if (!payloads.isEmpty()) {
             holder.updateDetailView();
         } else {
@@ -225,11 +226,11 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
     }
 
     @Override
-    public ProgramRowHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+    public ProgramRowViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
         View itemView = LayoutInflater.from(parent.getContext()).inflate(viewType, parent, false);
         ProgramRow programRow = (ProgramRow) itemView.findViewById(R.id.row);
         programRow.setRecycledViewPool(mRecycledViewPool);
-        return new ProgramRowHolder(itemView);
+        return new ProgramRowViewHolder(itemView);
     }
 
     @Override
@@ -241,18 +242,7 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
         notifyItemChanged(channelIndex, true);
     }
 
-    @Override
-    public void onViewAttachedToWindow(ProgramRowHolder holder) {
-        holder.onAttachedToWindow();
-    }
-
-    @Override
-    public void onViewDetachedFromWindow(ProgramRowHolder holder) {
-        holder.onDetachedFromWindow();
-    }
-
-    // TODO: make it static
-    public class ProgramRowHolder extends RecyclerView.ViewHolder
+    class ProgramRowViewHolder extends RecyclerView.ViewHolder
             implements ProgramRow.ChildFocusListener {
 
         private final ViewGroup mContainer;
@@ -260,30 +250,39 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
         private ProgramManager.TableEntry mSelectedEntry;
         private Animator mDetailOutAnimator;
         private Animator mDetailInAnimator;
-        private final Runnable mDetailInStarter = new Runnable() {
-            @Override
-            public void run() {
-                mProgramRow.removeOnScrollListener(mOnScrollListener);
-                if (mDetailInAnimator != null) {
-                    mDetailInAnimator.start();
-                }
-            }
-        };
+        private final Runnable mDetailInStarter =
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        mProgramRow.removeOnScrollListener(mOnScrollListener);
+                        if (mDetailInAnimator != null) {
+                            mDetailInAnimator.start();
+                        }
+                    }
+                };
+        private final Runnable mUpdateDetailViewRunnable =
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        updateDetailView();
+                    }
+                };
 
         private final RecyclerView.OnScrollListener mOnScrollListener =
                 new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
-                onHorizontalScrolled();
-            }
-        };
+                    @Override
+                    public void onScrolled(RecyclerView recyclerView, int dx, int dy) {
+                        onHorizontalScrolled();
+                    }
+                };
 
         private final ViewTreeObserver.OnGlobalFocusChangeListener mGlobalFocusChangeListener =
                 new ViewTreeObserver.OnGlobalFocusChangeListener() {
                     @Override
                     public void onGlobalFocusChanged(View oldFocus, View newFocus) {
-                        onChildFocus(isChild(oldFocus) ? oldFocus : null,
-                                isChild(newFocus) ? newFocus : null);
+                        onChildFocus(
+                                GuideUtils.isDescendant(mContainer, oldFocus) ? oldFocus : null,
+                                GuideUtils.isDescendant(mContainer, newFocus) ? newFocus : null);
                     }
                 };
 
@@ -312,11 +311,39 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
         private final ImageView mInputLogoView;
 
         private boolean mIsInputLogoVisible;
+        private AccessibilityStateChangeListener mAccessibilityStateChangeListener =
+                new AccessibilityManager.AccessibilityStateChangeListener() {
+                    @Override
+                    public void onAccessibilityStateChanged(boolean enable) {
+                        enable &= !CommonUtils.isRunningInTest();
+                        mChannelHeaderView.setFocusable(enable);
+                    }
+                };
 
-        public ProgramRowHolder(View itemView) {
+        ProgramRowViewHolder(View itemView) {
             super(itemView);
 
             mContainer = (ViewGroup) itemView;
+            mContainer.addOnAttachStateChangeListener(
+                    new View.OnAttachStateChangeListener() {
+                        @Override
+                        public void onViewAttachedToWindow(View v) {
+                            mContainer
+                                    .getViewTreeObserver()
+                                    .addOnGlobalFocusChangeListener(mGlobalFocusChangeListener);
+                            mAccessibilityManager.addAccessibilityStateChangeListener(
+                                    mAccessibilityStateChangeListener);
+                        }
+
+                        @Override
+                        public void onViewDetachedFromWindow(View v) {
+                            mContainer
+                                    .getViewTreeObserver()
+                                    .removeOnGlobalFocusChangeListener(mGlobalFocusChangeListener);
+                            mAccessibilityManager.removeAccessibilityStateChangeListener(
+                                    mAccessibilityStateChangeListener);
+                        }
+                    });
             mProgramRow = (ProgramRow) mContainer.findViewById(R.id.row);
 
             mDetailView = (ViewGroup) mContainer.findViewById(R.id.detail);
@@ -339,23 +366,17 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
             mChannelLogoView = (ImageView) mContainer.findViewById(R.id.channel_logo);
             mChannelBlockView = (ImageView) mContainer.findViewById(R.id.channel_block);
             mInputLogoView = (ImageView) mContainer.findViewById(R.id.input_logo);
-            mDetailView.setFocusable(mAccessibilityManager.isEnabled());
-            mChannelHeaderView.setFocusable(mAccessibilityManager.isEnabled());
-            mAccessibilityManager.addAccessibilityStateChangeListener(
-                    new AccessibilityManager.AccessibilityStateChangeListener() {
-                        @Override
-                        public void onAccessibilityStateChanged(boolean enable) {
-                            mDetailView.setFocusable(enable);
-                            mChannelHeaderView.setFocusable(enable);
-                        }
-                    });
+
+            boolean accessibilityEnabled =
+                    mAccessibilityManager.isEnabled() && !CommonUtils.isRunningInTest();
+            mChannelHeaderView.setFocusable(accessibilityEnabled);
         }
 
         public void onBind(int position) {
             onBindChannel(mProgramManager.getChannel(position));
 
             mProgramRow.swapAdapter(mProgramListAdapters.get(position), true);
-            mProgramRow.setProgramManager(mProgramManager);
+            mProgramRow.setProgramGuide(mProgramGuide);
             mProgramRow.setChannel(mProgramManager.getChannel(position));
             mProgramRow.setChildFocusListener(this);
             mProgramRow.resetScroll(mProgramGuide.getTimelineRowScrollOffset());
@@ -363,9 +384,10 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
             mDetailView.setVisibility(View.GONE);
 
             // The bottom-left of the last channel header view will have a rounded corner.
-            mChannelHeaderView.setBackgroundResource((position < mProgramListAdapters.size() - 1)
-                    ? R.drawable.program_guide_table_header_column_item_background
-                    : R.drawable.program_guide_table_header_column_last_item_background);
+            mChannelHeaderView.setBackgroundResource(
+                    (position < mProgramListAdapters.size() - 1)
+                            ? R.drawable.program_guide_table_header_column_item_background
+                            : R.drawable.program_guide_table_header_column_last_item_background);
         }
 
         private void onBindChannel(Channel channel) {
@@ -392,7 +414,8 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
                 } else {
                     size = R.dimen.program_guide_table_header_column_channel_number_small_font_size;
                 }
-                mChannelNumberView.setTextSize(TypedValue.COMPLEX_UNIT_PX,
+                mChannelNumberView.setTextSize(
+                        TypedValue.COMPLEX_UNIT_PX,
                         mChannelNumberView.getContext().getResources().getDimension(size));
                 mChannelNumberView.setText(displayNumber);
                 mChannelNumberView.setVisibility(View.VISIBLE);
@@ -410,30 +433,21 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
                 mChannelNameView.setVisibility(View.VISIBLE);
                 mChannelBlockView.setVisibility(View.GONE);
 
-                mChannel.loadBitmap(itemView.getContext(), Channel.LOAD_IMAGE_TYPE_CHANNEL_LOGO,
-                        mChannelLogoWidth, mChannelLogoHeight,
+                mChannel.loadBitmap(
+                        itemView.getContext(),
+                        Channel.LOAD_IMAGE_TYPE_CHANNEL_LOGO,
+                        mChannelLogoWidth,
+                        mChannelLogoHeight,
                         createChannelLogoLoadedCallback(this, channel.getId()));
             }
-        }
-
-        public boolean isChild(View view) {
-            if (view == null) {
-                return false;
-            }
-            for (ViewParent p = view.getParent(); p != null; p = p.getParent()) {
-                if (p == mContainer) {
-                    return true;
-                }
-            }
-            return false;
         }
 
         @Override
         public void onChildFocus(View oldFocus, View newFocus) {
             if (newFocus == null) {
                 return;
-            }
-            // When the accessibility service is enabled, focus might be put on channel's header or
+            } // When the accessibility service is enabled, focus might be put on channel's header
+            // or
             // detail view, besides program items.
             if (newFocus == mChannelHeaderView) {
                 mSelectedEntry = ((ProgramItemView) mProgramRow.getChildAt(0)).getTableEntry();
@@ -443,11 +457,19 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
                 mSelectedEntry = ((ProgramItemView) newFocus).getTableEntry();
             }
             if (oldFocus == null) {
-                updateDetailView();
+                // Focus moved from other row.
+                if (mProgramGuide.getProgramGrid().isInLayout()) {
+                    // We need to post runnable to avoid updating detail view when
+                    // the recycler view is in layout, which may cause detail view not
+                    // laid out according to the updated contents.
+                    mHandler.post(mUpdateDetailViewRunnable);
+                } else {
+                    updateDetailView();
+                }
                 return;
             }
 
-            if (Program.isValid(mSelectedEntry.program)) {
+            if (Program.isProgramValid(mSelectedEntry.program)) {
                 Program program = mSelectedEntry.program;
                 if (getProgramBlock(program) == null) {
                     program.prefetchPosterArt(itemView.getContext(), mImageWidth, mImageHeight);
@@ -459,10 +481,12 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
             View detailContentView = mDetailView.findViewById(R.id.detail_content);
 
             if (mDetailInAnimator == null) {
-                mDetailOutAnimator = ObjectAnimator.ofPropertyValuesHolder(detailContentView,
-                        PropertyValuesHolder.ofFloat(View.ALPHA, 1f, 0f),
-                        PropertyValuesHolder.ofFloat(View.TRANSLATION_X,
-                                0f, direction * mDetailPadding));
+                mDetailOutAnimator =
+                        ObjectAnimator.ofPropertyValuesHolder(
+                                detailContentView,
+                                PropertyValuesHolder.ofFloat(View.ALPHA, 1f, 0f),
+                                PropertyValuesHolder.ofFloat(
+                                        View.TRANSLATION_X, 0f, direction * mDetailPadding));
                 mDetailOutAnimator.setDuration(mAnimationDuration);
                 mDetailOutAnimator.addListener(
                         new HardwareLayerAnimatorListenerAdapter(detailContentView) {
@@ -487,10 +511,12 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
                 mHandler.postDelayed(mDetailInStarter, mAnimationDuration);
             }
 
-            mDetailInAnimator = ObjectAnimator.ofPropertyValuesHolder(detailContentView,
-                    PropertyValuesHolder.ofFloat(View.ALPHA, 0f, 1f),
-                    PropertyValuesHolder.ofFloat(View.TRANSLATION_X,
-                            direction * -mDetailPadding, 0f));
+            mDetailInAnimator =
+                    ObjectAnimator.ofPropertyValuesHolder(
+                            detailContentView,
+                            PropertyValuesHolder.ofFloat(View.ALPHA, 0f, 1f),
+                            PropertyValuesHolder.ofFloat(
+                                    View.TRANSLATION_X, direction * -mDetailPadding, 0f));
             mDetailInAnimator.setDuration(mAnimationDuration);
             mDetailInAnimator.addListener(
                     new HardwareLayerAnimatorListenerAdapter(detailContentView) {
@@ -508,16 +534,6 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
                     });
         }
 
-        private void onAttachedToWindow() {
-            mContainer.getViewTreeObserver()
-                    .addOnGlobalFocusChangeListener(mGlobalFocusChangeListener);
-        }
-
-        private void onDetachedFromWindow() {
-            mContainer.getViewTreeObserver()
-                    .removeOnGlobalFocusChangeListener(mGlobalFocusChangeListener);
-        }
-
         private void updateDetailView() {
             if (mSelectedEntry == null) {
                 // The view holder is never on focus before.
@@ -525,7 +541,7 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
             }
             if (DEBUG) Log.d(TAG, "updateDetailView");
             mCriticScoresLayout.removeAllViews();
-            if (Program.isValid(mSelectedEntry.program)) {
+            if (Program.isProgramValid(mSelectedEntry.program)) {
                 mTitleView.setTextColor(mDetailTextColor);
                 Context context = itemView.getContext();
                 Program program = mSelectedEntry.program;
@@ -534,7 +550,10 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
 
                 updatePosterArt(null);
                 if (blockedRating == null) {
-                    program.loadPosterArt(context, mImageWidth, mImageHeight,
+                    program.loadPosterArt(
+                            context,
+                            mImageWidth,
+                            mImageHeight,
                             createProgramPosterArtCallback(this, program));
                 }
 
@@ -546,26 +565,35 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
                     String fullTitle = title + "  " + episodeTitle;
 
                     SpannableString text = new SpannableString(fullTitle);
-                    text.setSpan(mEpisodeTitleStyle,
-                            fullTitle.length() - episodeTitle.length(), fullTitle.length(),
+                    text.setSpan(
+                            mEpisodeTitleStyle,
+                            fullTitle.length() - episodeTitle.length(),
+                            fullTitle.length(),
                             Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
                     mTitleView.setText(text);
                 }
 
-                updateTextView(mTimeView, Utils.getDurationString(context,
-                        program.getStartTimeUtcMillis(),
-                        program.getEndTimeUtcMillis(), false));
+                updateTextView(
+                        mTimeView,
+                        Utils.getDurationString(
+                                context,
+                                program.getStartTimeUtcMillis(),
+                                program.getEndTimeUtcMillis(),
+                                false));
 
-                boolean trackMetaDataVisible = false;
-                trackMetaDataVisible |=
-                        updateTextView(mAspectRatioView, Utils.getAspectRatioString(
-                        program.getVideoWidth(), program.getVideoHeight()));
+                boolean trackMetaDataVisible =
+                        updateTextView(
+                                mAspectRatioView,
+                                Utils.getAspectRatioString(
+                                        program.getVideoWidth(), program.getVideoHeight()));
 
-                int videoDefinitionLevel = Utils.getVideoDefinitionLevelFromSize(
-                        program.getVideoWidth(), program.getVideoHeight());
+                int videoDefinitionLevel =
+                        Utils.getVideoDefinitionLevelFromSize(
+                                program.getVideoWidth(), program.getVideoHeight());
                 trackMetaDataVisible |=
-                        updateTextView(mResolutionView, Utils.getVideoDefinitionLevelString(
-                        context, videoDefinitionLevel));
+                        updateTextView(
+                                mResolutionView,
+                                Utils.getVideoDefinitionLevelString(context, videoDefinitionLevel));
 
                 if (mDvrManager != null && mDvrManager.isProgramRecordable(program)) {
                     ScheduledRecording scheduledRecording =
@@ -614,7 +642,6 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
                     mDvrIndicator.setVisibility(View.GONE);
                 }
 
-
                 if (blockedRating == null) {
                     mBlockView.setVisibility(View.GONE);
                     updateTextView(mDescriptionView, program.getDescription());
@@ -653,12 +680,16 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
         }
 
         private String getBlockedDescription(TvContentRating blockedRating) {
-            String name = mTvInputManagerHelper.getContentRatingsManager()
-                    .getDisplayNameForRating(blockedRating);
+            String name =
+                    mTvInputManagerHelper
+                            .getContentRatingsManager()
+                            .getDisplayNameForRating(blockedRating);
             if (TextUtils.isEmpty(name)) {
                 return mContext.getString(R.string.program_guide_content_locked);
             } else {
-                return mContext.getString(R.string.program_guide_content_locked_format, name);
+                return TvContentRating.UNRATED.equals(blockedRating)
+                        ? mContext.getString(R.string.program_guide_content_locked_unrated)
+                        : mContext.getString(R.string.program_guide_content_locked_format, name);
             }
         }
 
@@ -666,7 +697,7 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
          * Update tv input logo. It should be called when the visible child item in ProgramGrid
          * changed.
          */
-        public void updateInputLogo(int lastPosition, boolean forceShow) {
+        void updateInputLogo(int lastPosition, boolean forceShow) {
             if (mChannel == null) {
                 mInputLogoView.setVisibility(View.GONE);
                 mIsInputLogoVisible = false;
@@ -687,8 +718,9 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
                     mIsInputLogoVisible = true;
                     TvInputInfo info = mTvInputManagerHelper.getTvInputInfo(mChannel.getInputId());
                     if (info != null) {
-                        LoadTvInputLogoTask task = new LoadTvInputLogoTask(
-                                itemView.getContext(), ImageCache.getInstance(), info);
+                        LoadTvInputLogoTask task =
+                                new LoadTvInputLogoTask(
+                                        itemView.getContext(), ImageCache.getInstance(), info);
                         ImageLoader.loadBitmap(createTvInputLogoLoadedCallback(info, this), task);
                     }
                 }
@@ -731,23 +763,28 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
             mInputLogoView.setVisibility(View.VISIBLE);
         }
 
-        private void updateCriticScoreView(ProgramRowHolder holder, final long programId,
-                CriticScore criticScore, View view) {
+        private void updateCriticScoreView(
+                ProgramRowViewHolder holder,
+                final long programId,
+                CriticScore criticScore,
+                View view) {
             TextView criticScoreSource = (TextView) view.findViewById(R.id.critic_score_source);
             TextView criticScoreText = (TextView) view.findViewById(R.id.critic_score_score);
             ImageView criticScoreLogo = (ImageView) view.findViewById(R.id.critic_score_logo);
 
-            //set the appropriate information in the views
+            // set the appropriate information in the views
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                criticScoreSource.setText(Html.fromHtml(criticScore.source,
-                        Html.FROM_HTML_MODE_LEGACY));
+                criticScoreSource.setText(
+                        Html.fromHtml(criticScore.source, Html.FROM_HTML_MODE_LEGACY));
             } else {
                 criticScoreSource.setText(Html.fromHtml(criticScore.source));
             }
             criticScoreText.setText(criticScore.score);
             criticScoreSource.setVisibility(View.VISIBLE);
             criticScoreText.setVisibility(View.VISIBLE);
-            ImageLoader.loadBitmap(mContext, criticScore.logoUrl,
+            ImageLoader.loadBitmap(
+                    mContext,
+                    criticScore.logoUrl,
                     createCriticScoreLogoCallback(holder, programId, criticScoreLogo));
         }
 
@@ -759,12 +796,13 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
         }
     }
 
-    private static ImageLoaderCallback<ProgramRowHolder> createCriticScoreLogoCallback(
-            ProgramRowHolder holder, final long programId, ImageView logoView) {
-        return new ImageLoaderCallback<ProgramRowHolder>(holder) {
+    private static ImageLoaderCallback<ProgramRowViewHolder> createCriticScoreLogoCallback(
+            ProgramRowViewHolder holder, final long programId, ImageView logoView) {
+        return new ImageLoaderCallback<ProgramRowViewHolder>(holder) {
             @Override
-            public void onBitmapLoaded(ProgramRowHolder holder, @Nullable Bitmap logoImage) {
-                if (logoImage == null || holder.mSelectedEntry == null
+            public void onBitmapLoaded(ProgramRowViewHolder holder, @Nullable Bitmap logoImage) {
+                if (logoImage == null
+                        || holder.mSelectedEntry == null
                         || holder.mSelectedEntry.program == null
                         || holder.mSelectedEntry.program.getId() != programId) {
                     logoView.setVisibility(View.GONE);
@@ -776,12 +814,13 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
         };
     }
 
-    private static ImageLoaderCallback<ProgramRowHolder> createProgramPosterArtCallback(
-            ProgramRowHolder holder, final Program program) {
-        return new ImageLoaderCallback<ProgramRowHolder>(holder) {
+    private static ImageLoaderCallback<ProgramRowViewHolder> createProgramPosterArtCallback(
+            ProgramRowViewHolder holder, final Program program) {
+        return new ImageLoaderCallback<ProgramRowViewHolder>(holder) {
             @Override
-            public void onBitmapLoaded(ProgramRowHolder holder, @Nullable Bitmap posterArt) {
-                if (posterArt == null || holder.mSelectedEntry == null
+            public void onBitmapLoaded(ProgramRowViewHolder holder, @Nullable Bitmap posterArt) {
+                if (posterArt == null
+                        || holder.mSelectedEntry == null
                         || holder.mSelectedEntry.program == null) {
                     return;
                 }
@@ -794,12 +833,13 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
         };
     }
 
-    private static ImageLoaderCallback<ProgramRowHolder> createChannelLogoLoadedCallback(
-            ProgramRowHolder holder, final long channelId) {
-        return new ImageLoaderCallback<ProgramRowHolder>(holder) {
+    private static ImageLoaderCallback<ProgramRowViewHolder> createChannelLogoLoadedCallback(
+            ProgramRowViewHolder holder, final long channelId) {
+        return new ImageLoaderCallback<ProgramRowViewHolder>(holder) {
             @Override
-            public void onBitmapLoaded(ProgramRowHolder holder, @Nullable Bitmap logo) {
-                if (logo == null || holder.mChannel == null
+            public void onBitmapLoaded(ProgramRowViewHolder holder, @Nullable Bitmap logo) {
+                if (logo == null
+                        || holder.mChannel == null
                         || holder.mChannel.getId() != channelId) {
                     return;
                 }
@@ -808,13 +848,14 @@ public class ProgramTableAdapter extends RecyclerView.Adapter<ProgramTableAdapte
         };
     }
 
-    private static ImageLoaderCallback<ProgramRowHolder> createTvInputLogoLoadedCallback(
-            final TvInputInfo info, ProgramRowHolder holder) {
-        return new ImageLoaderCallback<ProgramRowHolder>(holder) {
+    private static ImageLoaderCallback<ProgramRowViewHolder> createTvInputLogoLoadedCallback(
+            final TvInputInfo info, ProgramRowViewHolder holder) {
+        return new ImageLoaderCallback<ProgramRowViewHolder>(holder) {
             @Override
-            public void onBitmapLoaded(ProgramRowHolder holder, @Nullable Bitmap logo) {
-                if (logo != null && holder.mChannel != null && info.getId()
-                        .equals(holder.mChannel.getInputId())) {
+            public void onBitmapLoaded(ProgramRowViewHolder holder, @Nullable Bitmap logo) {
+                if (logo != null
+                        && holder.mChannel != null
+                        && info.getId().equals(holder.mChannel.getInputId())) {
                     holder.updateInputLogoInternal(logo);
                 }
             }

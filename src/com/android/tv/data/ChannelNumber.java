@@ -17,37 +17,55 @@
 package com.android.tv.data;
 
 import android.support.annotation.NonNull;
+import android.text.TextUtils;
 import android.view.KeyEvent;
+import com.android.tv.common.util.StringUtils;
+import com.android.tv.data.api.Channel;
+import java.util.Objects;
 
-/**
- * A convenience class to handle channel number.
- */
+/** A convenience class to handle channel number. */
 public final class ChannelNumber implements Comparable<ChannelNumber> {
-    public static final String PRIMARY_CHANNEL_DELIMITER = "-";
-    public static final String[] CHANNEL_DELIMITERS = {"-", ".", " "};
-
     private static final int[] CHANNEL_DELIMITER_KEYCODES = {
-        KeyEvent.KEYCODE_MINUS, KeyEvent.KEYCODE_NUMPAD_SUBTRACT, KeyEvent.KEYCODE_PERIOD,
-        KeyEvent.KEYCODE_NUMPAD_DOT, KeyEvent.KEYCODE_SPACE
+        KeyEvent.KEYCODE_MINUS,
+        KeyEvent.KEYCODE_NUMPAD_SUBTRACT,
+        KeyEvent.KEYCODE_PERIOD,
+        KeyEvent.KEYCODE_NUMPAD_DOT,
+        KeyEvent.KEYCODE_SPACE
     };
 
+    /** The major part of the channel number. */
     public String majorNumber;
+    /** The flag which indicates whether it has a delimiter or not. */
     public boolean hasDelimiter;
+    /** The major part of the channel number. */
     public String minorNumber;
 
     public ChannelNumber() {
         reset();
     }
 
-    public ChannelNumber(String major, boolean hasDelimiter, String minor) {
-        setChannelNumber(major, hasDelimiter, minor);
+    /**
+     * {@code lhs} and {@code rhs} are equivalent if {@link ChannelNumber#compare(String, String)}
+     * is 0 or if only one has a delimiter and both {@link ChannelNumber#majorNumber} equals.
+     */
+    public static boolean equivalent(String lhs, String rhs) {
+        if (compare(lhs, rhs) == 0) {
+            return true;
+        }
+        // Match if only one has delimiter
+        ChannelNumber lhsNumber = parseChannelNumber(lhs);
+        ChannelNumber rhsNumber = parseChannelNumber(rhs);
+        return lhsNumber != null
+                && rhsNumber != null
+                && lhsNumber.hasDelimiter != rhsNumber.hasDelimiter
+                && lhsNumber.majorNumber.equals(rhsNumber.majorNumber);
     }
 
     public void reset() {
         setChannelNumber("", false, "");
     }
 
-    public void setChannelNumber(String majorNumber, boolean hasDelimiter, String minorNumber) {
+    private void setChannelNumber(String majorNumber, boolean hasDelimiter, String minorNumber) {
         this.majorNumber = majorNumber;
         this.hasDelimiter = hasDelimiter;
         this.minorNumber = minorNumber;
@@ -56,7 +74,7 @@ public final class ChannelNumber implements Comparable<ChannelNumber> {
     @Override
     public String toString() {
         if (hasDelimiter) {
-            return majorNumber + PRIMARY_CHANNEL_DELIMITER + minorNumber;
+            return majorNumber + Channel.CHANNEL_NUMBER_DELIMITER + minorNumber;
         }
         return majorNumber;
     }
@@ -67,12 +85,27 @@ public final class ChannelNumber implements Comparable<ChannelNumber> {
         int minor = hasDelimiter ? Integer.parseInt(minorNumber) : 0;
 
         int opponentMajor = Integer.parseInt(another.majorNumber);
-        int opponentMinor = another.hasDelimiter
-                ? Integer.parseInt(another.minorNumber) : 0;
+        int opponentMinor = another.hasDelimiter ? Integer.parseInt(another.minorNumber) : 0;
         if (major == opponentMajor) {
             return minor - opponentMinor;
         }
         return major - opponentMajor;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj instanceof ChannelNumber) {
+            ChannelNumber channelNumber = (ChannelNumber) obj;
+            return TextUtils.equals(majorNumber, channelNumber.majorNumber)
+                    && TextUtils.equals(minorNumber, channelNumber.minorNumber)
+                    && hasDelimiter == channelNumber.hasDelimiter;
+        }
+        return super.equals(obj);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(majorNumber, hasDelimiter, minorNumber);
     }
 
     public static boolean isChannelNumberDelimiterKey(int keyCode) {
@@ -84,22 +117,22 @@ public final class ChannelNumber implements Comparable<ChannelNumber> {
         return false;
     }
 
+    /**
+     * Returns the ChannelNumber instance.
+     *
+     * <p>Note that all the channel number argument should be normalized by {@link
+     * ChannelImpl#normalizeDisplayNumber}. The channels retrieved from {@link ChannelDataManager}
+     * are already normalized.
+     */
     public static ChannelNumber parseChannelNumber(String number) {
         if (number == null) {
             return null;
         }
         ChannelNumber ret = new ChannelNumber();
-        int indexOfDelimiter = -1;
-        for (String delimiter : CHANNEL_DELIMITERS) {
-            indexOfDelimiter = number.indexOf(delimiter);
-            if (indexOfDelimiter >= 0) {
-                break;
-            }
-        }
+        int indexOfDelimiter = number.indexOf(Channel.CHANNEL_NUMBER_DELIMITER);
         if (indexOfDelimiter == 0 || indexOfDelimiter == number.length() - 1) {
             return null;
-        }
-        if (indexOfDelimiter < 0) {
+        } else if (indexOfDelimiter < 0) {
             ret.majorNumber = number;
             if (!isInteger(ret.majorNumber)) {
                 return null;
@@ -115,25 +148,31 @@ public final class ChannelNumber implements Comparable<ChannelNumber> {
         return ret;
     }
 
+    /**
+     * Compares the channel numbers.
+     *
+     * <p>Note that all the channel number arguments should be normalized by {@link
+     * ChannelImpl#normalizeDisplayNumber}. The channels retrieved from {@link ChannelDataManager}
+     * are already normalized.
+     */
     public static int compare(String lhs, String rhs) {
         ChannelNumber lhsNumber = parseChannelNumber(lhs);
         ChannelNumber rhsNumber = parseChannelNumber(rhs);
+        // Null first
         if (lhsNumber == null && rhsNumber == null) {
-            return 0;
+            return StringUtils.compare(lhs, rhs);
         } else if (lhsNumber == null /* && rhsNumber != null */) {
             return -1;
-        } else if (lhsNumber != null && rhsNumber == null) {
+        } else if (rhsNumber == null) {
             return 1;
         }
         return lhsNumber.compareTo(rhsNumber);
     }
 
-    public static boolean isInteger(String string) {
+    private static boolean isInteger(String string) {
         try {
             Integer.parseInt(string);
-        } catch(NumberFormatException e) {
-            return false;
-        } catch(NullPointerException e) {
+        } catch (NumberFormatException | NullPointerException e) {
             return false;
         }
         return true;

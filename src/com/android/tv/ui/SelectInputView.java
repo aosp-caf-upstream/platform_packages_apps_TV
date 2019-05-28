@@ -18,7 +18,6 @@ package com.android.tv.ui;
 
 import android.content.Context;
 import android.content.res.Resources;
-import android.hardware.hdmi.HdmiDeviceInfo;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
 import android.media.tv.TvInputManager.TvInputCallback;
@@ -33,24 +32,20 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
-
-import com.android.tv.ApplicationSingletons;
 import com.android.tv.R;
-import com.android.tv.TvApplication;
-import com.android.tv.analytics.DurationTimer;
+import com.android.tv.TvSingletons;
 import com.android.tv.analytics.Tracker;
-import com.android.tv.data.Channel;
+import com.android.tv.common.util.DurationTimer;
+import com.android.tv.data.api.Channel;
 import com.android.tv.util.TvInputManagerHelper;
-
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class SelectInputView extends VerticalGridView implements
-        TvTransitionManager.TransitionLayout {
+public class SelectInputView extends VerticalGridView
+        implements TvTransitionManager.TransitionLayout {
     private static final String TAG = "SelectInputView";
     private static final boolean DEBUG = false;
     public static final String SCREEN_NAME = "Input selection";
@@ -58,69 +53,71 @@ public class SelectInputView extends VerticalGridView implements
 
     private final TvInputManagerHelper mTvInputManagerHelper;
     private final List<TvInputInfo> mInputList = new ArrayList<>();
-    private final InputsComparator mComparator = new InputsComparator();
+    private final TvInputManagerHelper.HardwareInputComparator mComparator;
     private final Tracker mTracker;
     private final DurationTimer mViewDurationTimer = new DurationTimer();
-    private final TvInputCallback mTvInputCallback = new TvInputCallback() {
-        @Override
-        public void onInputAdded(String inputId) {
-            buildInputListAndNotify();
-            updateSelectedPositionIfNeeded();
-        }
+    private final TvInputCallback mTvInputCallback =
+            new TvInputCallback() {
+                @Override
+                public void onInputAdded(String inputId) {
+                    buildInputListAndNotify();
+                    updateSelectedPositionIfNeeded();
+                }
 
-        @Override
-        public void onInputRemoved(String inputId) {
-            buildInputListAndNotify();
-            updateSelectedPositionIfNeeded();
-        }
+                @Override
+                public void onInputRemoved(String inputId) {
+                    buildInputListAndNotify();
+                    updateSelectedPositionIfNeeded();
+                }
 
-        @Override
-        public void onInputUpdated(String inputId) {
-            buildInputListAndNotify();
-            updateSelectedPositionIfNeeded();
-        }
+                @Override
+                public void onInputUpdated(String inputId) {
+                    buildInputListAndNotify();
+                    updateSelectedPositionIfNeeded();
+                }
 
-        @Override
-        public void onInputStateChanged(String inputId, int state) {
-            buildInputListAndNotify();
-            updateSelectedPositionIfNeeded();
-        }
+                @Override
+                public void onInputStateChanged(String inputId, int state) {
+                    buildInputListAndNotify();
+                    updateSelectedPositionIfNeeded();
+                }
 
-        private void updateSelectedPositionIfNeeded() {
-            if (!isFocusable() || mSelectedInput == null) {
-                return;
-            }
-            if (!isInputEnabled(mSelectedInput)) {
-                setSelectedPosition(TUNER_INPUT_POSITION);
-                return;
-            }
-            if (getInputPosition(mSelectedInput.getId()) != getSelectedPosition()) {
-                setSelectedPosition(getInputPosition(mSelectedInput.getId()));
-            }
-        }
-    };
+                private void updateSelectedPositionIfNeeded() {
+                    if (!isFocusable() || mSelectedInput == null) {
+                        return;
+                    }
+                    if (!isInputEnabled(mSelectedInput)) {
+                        setSelectedPosition(TUNER_INPUT_POSITION);
+                        return;
+                    }
+                    if (getInputPosition(mSelectedInput.getId()) != getSelectedPosition()) {
+                        setSelectedPosition(getInputPosition(mSelectedInput.getId()));
+                    }
+                }
+            };
 
     private Channel mCurrentChannel;
     private OnInputSelectedCallback mCallback;
 
-    private final Runnable mHideRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (mSelectedInput == null) {
-                return;
-            }
-            // TODO: pass english label to tracker http://b/22355024
-            final String label = mSelectedInput.loadLabel(getContext()).toString();
-            mTracker.sendInputSelected(label);
-            if (mCallback != null) {
-                if (mSelectedInput.isPassthroughInput()) {
-                    mCallback.onPassthroughInputSelected(mSelectedInput);
-                } else {
-                    mCallback.onTunerInputSelected();
+    private final Runnable mHideRunnable =
+            new Runnable() {
+                @Override
+                public void run() {
+                    if (mSelectedInput == null) {
+                        return;
+                    }
+                    // TODO: pass english label to tracker http://b/22355024
+                    final String label = mSelectedInput.loadLabel(getContext()).toString();
+                    mTracker.sendInputSelected(label);
+                    if (mCallback != null) {
+                        if (mSelectedInput.isPassthroughInput()) {
+                            mCallback.onPassthroughInputSelected(mSelectedInput);
+                        } else {
+                            mCallback.onTunerInputSelected();
+                        }
+                    }
                 }
-            }
-        }
-    };
+            };
 
     private final int mInputItemHeight;
     private final long mShowDurationMillis;
@@ -146,21 +143,23 @@ public class SelectInputView extends VerticalGridView implements
         super(context, attrs, defStyleAttr);
         setAdapter(new InputListAdapter());
 
-        ApplicationSingletons appSingletons = TvApplication.getSingletons(context);
-        mTracker = appSingletons.getTracker();
-        mTvInputManagerHelper = appSingletons.getTvInputManagerHelper();
+        TvSingletons tvSingletons = TvSingletons.getSingletons(context);
+        mTracker = tvSingletons.getTracker();
+        mTvInputManagerHelper = tvSingletons.getTvInputManagerHelper();
+        mComparator =
+                new TvInputManagerHelper.HardwareInputComparator(context, mTvInputManagerHelper);
 
         Resources resources = context.getResources();
         mInputItemHeight = resources.getDimensionPixelSize(R.dimen.input_banner_item_height);
         mShowDurationMillis = resources.getInteger(R.integer.select_input_show_duration);
-        mRippleAnimDurationMillis = resources.getInteger(
-                R.integer.select_input_ripple_anim_duration);
+        mRippleAnimDurationMillis =
+                resources.getInteger(R.integer.select_input_ripple_anim_duration);
         mTextColorPrimary = resources.getColor(R.color.select_input_text_color_primary, null);
         mTextColorSecondary = resources.getColor(R.color.select_input_text_color_secondary, null);
         mTextColorDisabled = resources.getColor(R.color.select_input_text_color_disabled, null);
 
-        mItemViewForMeasure = LayoutInflater.from(context).inflate(
-                R.layout.select_input_item, this, false);
+        mItemViewForMeasure =
+                LayoutInflater.from(context).inflate(R.layout.select_input_item, this, false);
         buildInputListAndNotify();
     }
 
@@ -199,8 +198,10 @@ public class SelectInputView extends VerticalGridView implements
         mResetTransitionAlpha = fromEmptyScene;
         buildInputListAndNotify();
         mTvInputManagerHelper.addCallback(mTvInputCallback);
-        String currentInputId = mCurrentChannel != null && mCurrentChannel.isPassthrough() ?
-                mCurrentChannel.getInputId() : null;
+        String currentInputId =
+                mCurrentChannel != null && mCurrentChannel.isPassthrough()
+                        ? mCurrentChannel.getInputId()
+                        : null;
         if (currentInputId != null
                 && !isInputEnabled(mTvInputManagerHelper.getTvInputInfo(currentInputId))) {
             // If current input is disabled, the tuner input will be focused.
@@ -233,7 +234,8 @@ public class SelectInputView extends VerticalGridView implements
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         int height = mInputItemHeight * mInputList.size();
-        super.onMeasure(MeasureSpec.makeMeasureSpec(mMaxItemWidth, MeasureSpec.EXACTLY),
+        super.onMeasure(
+                MeasureSpec.makeMeasureSpec(mMaxItemWidth, MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
     }
 
@@ -299,16 +301,14 @@ public class SelectInputView extends VerticalGridView implements
                 != TvInputManager.INPUT_STATE_DISCONNECTED;
     }
 
-    /**
-     * Sets a callback which receives the notifications of input selection.
-     */
+    /** Sets a callback which receives the notifications of input selection. */
     public void setOnInputSelectedCallback(OnInputSelectedCallback callback) {
         mCallback = callback;
     }
 
     /**
-     * Sets the current channel. The initial selection will be the input which contains the
-     * {@code channel}.
+     * Sets the current channel. The initial selection will be the input which contains the {@code
+     * channel}.
      */
     public void setCurrentChannel(Channel channel) {
         mCurrentChannel = channel;
@@ -317,8 +317,9 @@ public class SelectInputView extends VerticalGridView implements
     class InputListAdapter extends RecyclerView.Adapter<InputListAdapter.ViewHolder> {
         @Override
         public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            View v = LayoutInflater.from(parent.getContext()).inflate(
-                    R.layout.select_input_item, parent, false);
+            View v =
+                    LayoutInflater.from(parent.getContext())
+                            .inflate(R.layout.select_input_item, parent, false);
             return new ViewHolder(v);
         }
 
@@ -343,25 +344,29 @@ public class SelectInputView extends VerticalGridView implements
                 holder.secondaryInputLabelView.setVisibility(View.GONE);
             }
 
-            holder.itemView.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    mSelectedInput = mInputList.get(position);
-                    // The user made a selection. Hide this view after the ripple animation. But
-                    // first, disable focus to avoid any further focus change during the animation.
-                    setFocusable(false);
-                    removeCallbacks(mHideRunnable);
-                    postDelayed(mHideRunnable, mRippleAnimDurationMillis);
-                }
-            });
-            holder.itemView.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-                @Override
-                public void onFocusChange(View view, boolean hasFocus) {
-                    if (hasFocus) {
-                        mSelectedInput = mInputList.get(position);
-                    }
-                }
-            });
+            holder.itemView.setOnClickListener(
+                    new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            mSelectedInput = mInputList.get(position);
+                            // The user made a selection. Hide this view after the ripple animation.
+                            // But
+                            // first, disable focus to avoid any further focus change during the
+                            // animation.
+                            setFocusable(false);
+                            removeCallbacks(mHideRunnable);
+                            postDelayed(mHideRunnable, mRippleAnimDurationMillis);
+                        }
+                    });
+            holder.itemView.setOnFocusChangeListener(
+                    new View.OnFocusChangeListener() {
+                        @Override
+                        public void onFocusChange(View view, boolean hasFocus) {
+                            if (hasFocus) {
+                                mSelectedInput = mInputList.get(position);
+                            }
+                        }
+                    });
 
             if (mResetTransitionAlpha) {
                 ViewUtils.setTransitionAlpha(holder.itemView, 1f);
@@ -385,84 +390,12 @@ public class SelectInputView extends VerticalGridView implements
         }
     }
 
-    private class InputsComparator implements Comparator<TvInputInfo> {
-        @Override
-        public int compare(TvInputInfo lhs, TvInputInfo rhs) {
-            if (lhs == null) {
-                return (rhs == null) ? 0 : 1;
-            }
-            if (rhs == null) {
-                return -1;
-            }
-
-            boolean enabledL = isInputEnabled(lhs);
-            boolean enabledR = isInputEnabled(rhs);
-            if (enabledL != enabledR) {
-                return enabledL ? -1 : 1;
-            }
-
-            int priorityL = getPriority(lhs);
-            int priorityR = getPriority(rhs);
-            if (priorityL != priorityR) {
-                return priorityR - priorityL;
-            }
-
-            String customLabelL = (String) lhs.loadCustomLabel(getContext());
-            String customLabelR = (String) rhs.loadCustomLabel(getContext());
-            if (!TextUtils.equals(customLabelL, customLabelR)) {
-                customLabelL = customLabelL == null ? "" : customLabelL;
-                customLabelR = customLabelR == null ? "" : customLabelR;
-                return customLabelL.compareToIgnoreCase(customLabelR);
-            }
-
-            String labelL = (String) lhs.loadLabel(getContext());
-            String labelR = (String) rhs.loadLabel(getContext());
-            labelL = labelL == null ? "" : labelL;
-            labelR = labelR == null ? "" : labelR;
-            return labelL.compareToIgnoreCase(labelR);
-        }
-
-        private int getPriority(TvInputInfo info) {
-            switch (info.getType()) {
-                case TvInputInfo.TYPE_TUNER:
-                    return 9;
-                case TvInputInfo.TYPE_HDMI:
-                    HdmiDeviceInfo hdmiInfo = info.getHdmiDeviceInfo();
-                    if (hdmiInfo != null && hdmiInfo.isCecDevice()) {
-                        return 8;
-                    }
-                    return 7;
-                case TvInputInfo.TYPE_DVI:
-                    return 6;
-                case TvInputInfo.TYPE_COMPONENT:
-                    return 5;
-                case TvInputInfo.TYPE_SVIDEO:
-                    return 4;
-                case TvInputInfo.TYPE_COMPOSITE:
-                    return 3;
-                case TvInputInfo.TYPE_DISPLAY_PORT:
-                    return 2;
-                case TvInputInfo.TYPE_VGA:
-                    return 1;
-                case TvInputInfo.TYPE_SCART:
-                default:
-                    return 0;
-            }
-        }
-    }
-
-    /**
-     * A callback interface for the input selection.
-     */
+    /** A callback interface for the input selection. */
     public interface OnInputSelectedCallback {
-        /**
-         * Called when the tuner input is selected.
-         */
+        /** Called when the tuner input is selected. */
         void onTunerInputSelected();
 
-        /**
-         * Called when the passthrough input is selected.
-         */
+        /** Called when the passthrough input is selected. */
         void onPassthroughInputSelected(@NonNull TvInputInfo input);
     }
 }
